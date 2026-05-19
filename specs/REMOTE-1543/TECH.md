@@ -3,7 +3,7 @@ See `specs/REMOTE-1543/PRODUCT.md` for the user-visible behavior. This document 
 ## Context
 The queue replaces a single-slot pending-prompt mechanism that previously powered `/queue`, the auto-queue toggle, `/compact-and`, `/fork-and-compact`, and the Cloud Mode "waiting on harness" indicator. The single slot is gone; a per-conversation FIFO model now backs all of those trigger surfaces, and a new collapsible panel renders between the warping indicator and the agent input box.
 ### Components
-- `QueuedQueryModel` in `app/src/ai/blocklist/queued_query.rs` — the per-conversation queue (`HashMap<AIConversationId, VecDeque<QueuedQuery>>` plus edit / collapse state).
+- `QueuedQueryModel` in `app/src/ai/blocklist/queued_query.rs` — the per-conversation queue (`HashMap<AIConversationId, Vec<QueuedQuery>>` plus edit / collapse state).
 - `QueuedPromptsPanelView` in `app/src/ai/blocklist/queued_prompts_panel.rs` — the rendered panel (header + rows + inline editor + drag-and-drop).
 - `BlocklistAIContextModel` in `app/src/ai/blocklist/context_model.rs` — owns `queued_query_model: ModelHandle<QueuedQueryModel>` and forwards relevant history / agent-view-exit events into it.
 - `TerminalView` in `app/src/terminal/view.rs` — instantiates the panel, wires it into `Input`, and drains the queue on `FinishedReceivingOutput`.
@@ -11,7 +11,7 @@ The queue replaces a single-slot pending-prompt mechanism that previously powere
 ## Implementation
 ### 1. `QueuedQueryModel` (`app/src/ai/blocklist/queued_query.rs`)
 Fields:
-- `queues: HashMap<AIConversationId, VecDeque<QueuedQuery>>` — per-conversation FIFO.
+- `queues: HashMap<AIConversationId, Vec<QueuedQuery>>` — per-conversation FIFO.
 - `editing: Option<EditingRow>` where `EditingRow { conversation_id, query_id }` — at most one row across all conversations may be in edit mode.
 - `collapsed: HashSet<AIConversationId>` — per-conversation collapse state (cleared by `clear_for_conversation`).
 Types:

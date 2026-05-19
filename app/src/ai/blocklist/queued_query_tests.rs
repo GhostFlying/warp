@@ -307,6 +307,23 @@ fn reorder_moves_user_managed_rows_to_target_index() {
 }
 
 #[test]
+fn reorder_preserves_every_row_when_moving_last_to_front() {
+    with_model(|mut app, model, _events| {
+        let conv = AIConversationId::new();
+        let id_a = append_user(&model, &mut app, conv, "a");
+        let id_b = append_user(&model, &mut app, conv, "b");
+        let id_c = append_user(&model, &mut app, conv, "c");
+        let id_d = append_user(&model, &mut app, conv, "d");
+
+        model.update(&mut app, |m, ctx| m.reorder(conv, id_d, 0, ctx));
+
+        model.read(&app, |m, _| {
+            let ids: Vec<_> = m.queue_for(conv).iter().map(|q| q.id()).collect();
+            assert_eq!(ids, vec![id_d, id_a, id_b, id_c]);
+        });
+    });
+}
+#[test]
 fn reorder_clamps_target_index_to_queue_len() {
     with_model(|mut app, model, _events| {
         let conv = AIConversationId::new();

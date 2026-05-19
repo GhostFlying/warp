@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 use warpui::{Entity, ModelContext};
@@ -93,7 +93,7 @@ pub enum AutofireAction {
 /// Per-conversation queue of follow-up prompts plus the panel's edit and collapse state.
 /// One model is owned by each `BlocklistAIContextModel`.
 pub struct QueuedQueryModel {
-    queues: HashMap<AIConversationId, VecDeque<QueuedQuery>>,
+    queues: HashMap<AIConversationId, Vec<QueuedQuery>>,
     /// At most one row across all conversations may be in edit mode.
     editing: Option<EditingRow>,
     /// Conversations whose queue panel is currently collapsed (header visible, rows hidden).
@@ -163,7 +163,7 @@ impl QueuedQueryModel {
     pub fn queue_for(&self, conversation_id: AIConversationId) -> &[QueuedQuery] {
         self.queues
             .get(&conversation_id)
-            .map(|q| q.as_slices().0)
+            .map(Vec::as_slice)
             .unwrap_or(&[])
     }
 
@@ -171,7 +171,7 @@ impl QueuedQueryModel {
     pub fn first_text(&self, conversation_id: AIConversationId) -> Option<&str> {
         self.queues
             .get(&conversation_id)?
-            .front()
+            .first()
             .map(|q| q.text.as_str())
     }
 
@@ -203,10 +203,7 @@ impl QueuedQueryModel {
         ctx: &mut ModelContext<Self>,
     ) -> QueuedQueryId {
         let id = query.id;
-        self.queues
-            .entry(conversation_id)
-            .or_default()
-            .push_back(query);
+        self.queues.entry(conversation_id).or_default().push(query);
         ctx.emit(QueuedQueryEvent::Appended {
             conversation_id,
             query_id: id,
@@ -221,7 +218,11 @@ impl QueuedQueryModel {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) -> Option<QueuedQuery> {
-        let popped = self.queues.get_mut(&conversation_id)?.pop_front()?;
+        let queue = self.queues.get_mut(&conversation_id)?;
+        if queue.is_empty() {
+            return None;
+        }
+        let popped = queue.remove(0);
         // Clear edit mode if the popped row was the one being edited.
         if self
             .editing
@@ -251,7 +252,7 @@ impl QueuedQueryModel {
         ctx: &mut ModelContext<Self>,
     ) -> Option<AutofireAction> {
         let queue = self.queues.get_mut(&conversation_id)?;
-        let first = queue.front()?;
+        let first = queue.first()?;
         if !first.origin.is_user_managed() {
             return None;
         }
@@ -261,7 +262,7 @@ impl QueuedQueryModel {
             .as_ref()
             .is_some_and(|e| e.conversation_id == conversation_id && e.query_id == first.id);
 
-        let mut popped = queue.pop_front().expect("front checked above");
+        let mut popped = queue.remove(0);
         if first_in_edit_mode {
             if let Some(text) = edit_text_override {
                 popped.text = text;
@@ -291,7 +292,7 @@ impl QueuedQueryModel {
     ) -> Option<QueuedQuery> {
         let queue = self.queues.get_mut(&conversation_id)?;
         let idx = queue.iter().position(|q| q.id == query_id)?;
-        let removed = queue.remove(idx)?;
+        let removed = queue.remove(idx);
         if self
             .editing
             .as_ref()
@@ -353,7 +354,7 @@ impl QueuedQueryModel {
         if !queue[source_idx].origin.is_user_managed() {
             return;
         }
-        let row = queue.remove(source_idx).expect("source_idx valid");
+        let row = queue.remove(source_idx);
         let clamped = target_index.min(queue.len());
         queue.insert(clamped, row);
         ctx.emit(QueuedQueryEvent::Reordered { conversation_id });
