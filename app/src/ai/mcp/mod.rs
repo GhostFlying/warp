@@ -1,3 +1,6 @@
+pub mod manager;
+pub mod templatable_manager;
+
 #[cfg(not(target_family = "wasm"))]
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -6,28 +9,26 @@ use std::path::{Path, PathBuf};
 use diesel::{QueryDsl, RunQueryDsl, SqliteConnection};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+#[cfg(not(target_family = "wasm"))]
+use warp_core::datetime_ext::DateTimeExt;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::Icon;
 
-use crate::cloud_object::model::generic_string_model::StringModel;
-use crate::cloud_object::model::json_model::JsonModel;
-use crate::cloud_object::{
-    CloudObjectUuid, GenericStringObjectFormat, GenericStringObjectUniqueKey, JsonObjectType,
-    Revision,
-};
-use crate::drive::items::mcp_server::WarpDriveMCPServer;
-use crate::drive::items::WarpDriveItem;
-use crate::drive::CloudObjectTypeAndId;
 #[cfg(not(target_family = "wasm"))]
 use crate::persistence::model::MCPEnvironmentVariables;
-#[cfg(not(target_family = "wasm"))]
-#[cfg(not(target_family = "wasm"))]
-use crate::server::datetime_ext::DateTimeExt;
-use crate::server::ids::SyncId;
-use crate::server::sync_queue::QueueItem;
+use crate::{
+    cloud_object::{
+        model::{generic_string_model::StringModel, json_model::JsonModel},
+        CloudObjectUuid, GenericStringObjectFormat, GenericStringObjectUniqueKey, JsonObjectType,
+        Revision,
+    },
+    drive::{
+        items::{mcp_server::WarpDriveMCPServer, WarpDriveItem},
+        CloudObjectTypeAndId,
+    },
+    server::{ids::SyncId, sync_queue::QueueItem},
+};
 
-pub mod manager;
-pub mod templatable_manager;
 #[cfg(not(target_family = "wasm"))]
 pub use templatable_manager::McpIntegration;
 pub use templatable_manager::TemplatableMCPServerManager;
@@ -60,7 +61,8 @@ pub use cloud_object_models::{
 pub use cloud_object_models::{
     CloudMCPServer, CloudMCPServerModel, MCPServer, MCPServerState, TransportType,
 };
-pub use templatable::{JsonTemplate, TemplatableMCPServer, TemplateVariable};
+pub use templatable::JsonTemplate;
+pub use templatable::{TemplatableMCPServer, TemplateVariable};
 pub mod logs;
 pub mod templatable_installation;
 pub use templatable_installation::TemplatableMCPServerInstallation;
@@ -69,8 +71,6 @@ pub use templatable_installation::{VariableType, VariableValue};
 pub mod parsing;
 #[cfg(not(target_family = "wasm"))]
 pub use parsing::ParsedTemplatableMCPServerResult;
-#[cfg(not(target_family = "wasm"))]
-pub mod http_client;
 #[cfg(not(target_family = "wasm"))]
 pub mod reconnecting_peer;
 
