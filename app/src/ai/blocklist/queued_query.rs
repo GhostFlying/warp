@@ -20,6 +20,8 @@ impl QueuedQueryId {
 /// The origin is informational for telemetry; FIFO ordering and firing semantics are uniform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueuedQueryOrigin {
+    /// Filed while the initial Cloud Mode prompt waits to be handed off.
+    InitialCloudMode,
     /// Filed via the `/queue <prompt>` slash command.
     QueueSlashCommand,
     /// Filed via the auto-queue toggle in the warping indicator.
@@ -53,10 +55,6 @@ impl QueuedQuery {
 
     pub fn origin(&self) -> QueuedQueryOrigin {
         self.origin
-    }
-
-    pub fn into_text(self) -> String {
-        self.text
     }
 }
 

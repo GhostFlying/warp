@@ -57,7 +57,8 @@ pub struct OrchestrationCreditRollup {
 /// * the orchestrator and every loaded descendant have spent zero credits.
 ///
 /// Unloaded descendants (IDs in the topology index without a matching
-/// `AIConversation` in `conversations_by_id`) are silently skipped.
+/// `AIConversation` in `conversations_by_id`) are silently skipped — see
+/// PRODUCT.md invariant 10.
 pub fn compute_orchestration_rollup(
     parent_id: AIConversationId,
     history: &BlocklistAIHistoryModel,
@@ -91,7 +92,7 @@ pub fn compute_orchestration_rollup(
 
     for (spawn_idx, descendant_id) in descendant_ids.iter().enumerate() {
         let Some(descendant) = history.conversation(descendant_id) else {
-            // Silently skip unloaded descendants.
+            // PRODUCT invariant 10: silently skip unloaded descendants.
             continue;
         };
         let credits = descendant.credits_spent();

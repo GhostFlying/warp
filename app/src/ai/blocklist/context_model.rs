@@ -274,15 +274,12 @@ impl BlocklistAIContextModel {
             }
         });
 
-        // Clear auto-attached blocks when exiting agent view or switching conversations.
-        ctx.subscribe_to_model(&agent_view_controller, |me, event, ctx| {
+        // Clear auto-attached blocks when exiting agent view or switching conversations
+        ctx.subscribe_to_model(&agent_view_controller, |me, event, _| {
             use super::agent_view::AgentViewControllerEvent;
             match event {
                 AgentViewControllerEvent::ExitedAgentView { .. } => {
                     me.auto_attached_agent_view_user_block_ids.clear();
-                    BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
-                        history.clear_queued_queries_in_terminal_view(me.terminal_view_id, ctx);
-                    });
                 }
                 AgentViewControllerEvent::EnteredAgentView { .. } => {
                     me.auto_attached_agent_view_user_block_ids.clear();

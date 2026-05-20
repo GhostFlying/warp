@@ -40,7 +40,7 @@ Re-queueing replaces the previous prompt, the user can't reorder or edit what's 
 14. Every row in the queued-prompts panel is a regular user-managed queued prompt, so the row interactions in (12)–(13) apply uniformly to every visible panel row.
 15. Rows render in queue order from top (next to fire) to bottom (last to fire).
 ### Edit interaction
-16. Clicking the pencil icon on a row replaces the row's static text with an inline single-line editor pre-filled with the current prompt text, identical to the tab-rename interaction.
+16. Clicking the pencil icon on a row replaces the row's static text with an inline single-line editor pre-filled with the current prompt text and selects the entire prompt, identical to the tab-rename interaction.
 17. Pressing Enter commits the edit (the row's prompt is replaced with the editor contents) and exits edit mode. An empty edit restores the original prompt text and exits edit mode.
 18. Pressing Escape cancels the edit and restores the original prompt text. Clicking outside the row, including focusing the main input, commits the current editor text.
 19. While a row is in edit mode, that row's drag handle is inert (the row cannot be reordered until the edit is committed or cancelled). Other rows can still be dragged.

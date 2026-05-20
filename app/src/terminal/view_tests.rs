@@ -92,9 +92,13 @@ fn add_window_with_cloud_mode_terminal(app: &mut App) -> ViewHandle<TerminalView
     terminal
 }
 
-fn has_pending_cloud_mode_user_query_block(view: &TerminalView) -> bool {
-    view.pending_user_query_view_id.is_some()
-        && view.pending_user_query_kind == Some(PendingUserQueryKind::CloudMode)
+fn has_pending_user_query_block(view: &TerminalView) -> bool {
+    let Some(view_id) = view.pending_user_query_view_id else {
+        return false;
+    };
+    view.rich_content_views.iter().any(|rich_content| {
+        rich_content.view_id() == view_id && rich_content.is_pending_user_query()
+    })
 }
 fn input_operations_for_buffer_content(app: &mut App, content: &str) -> Vec<CrdtOperation> {
     let terminal = add_window_with_terminal(app, None);
@@ -129,6 +133,19 @@ fn exchange_with_inputs(inputs: Vec<AIAgentInput>) -> AIAgentExchange {
         computer_use_model_id: LLMId::from("test-computer-use-model"),
         response_initiator: None,
     }
+}
+
+fn append_exchange_and_handle_event(
+    view: &mut TerminalView,
+    input: AIAgentInput,
+    ctx: &mut ViewContext<TerminalView>,
+) -> (
+    AIConversationId,
+    TaskId,
+    AIAgentExchangeId,
+    ResponseStreamId,
+) {
+    append_exchange_with_inputs_and_handle_event(view, vec![input], ctx)
 }
 
 fn append_exchange_with_inputs_and_handle_event(
@@ -175,6 +192,40 @@ fn append_exchange_with_inputs_and_handle_event(
         ctx,
     );
     (conversation_id, task_id, exchange_id, response_stream_id)
+}
+
+fn update_exchange_input_and_handle_event(
+    view: &mut TerminalView,
+    conversation_id: AIConversationId,
+    exchange_id: AIAgentExchangeId,
+    response_stream_id: ResponseStreamId,
+    inputs: Vec<AIAgentInput>,
+    ctx: &mut ViewContext<TerminalView>,
+) {
+    let history_model = BlocklistAIHistoryModel::handle(ctx);
+    history_model.update(ctx, |history_model, ctx| {
+        let conversation = history_model
+            .conversation_mut(&conversation_id)
+            .expect("conversation should exist");
+        let mut exchange = conversation
+            .remove_exchange(exchange_id)
+            .expect("exchange should exist");
+        exchange.input = inputs;
+        conversation
+            .append_reassigned_exchange(&response_stream_id, exchange, view.view_id, ctx)
+            .expect("exchange should append");
+    });
+
+    view.handle_ai_history_model_event(
+        history_model,
+        &BlocklistAIHistoryEvent::UpdatedStreamingExchange {
+            exchange_id,
+            terminal_view_id: view.view_id,
+            conversation_id,
+            is_hidden: false,
+        },
+        ctx,
+    );
 }
 
 fn ai_block_count(view: &TerminalView) -> usize {
@@ -1112,7 +1163,6 @@ fn shared_third_party_viewer_syncs_from_viewer_harness_updated_when_harness_unch
         });
     });
 }
-
 #[test]
 fn shared_third_party_viewer_syncs_from_cli_agent_state_without_ambient_model() {
     App::test((), |mut app| async move {
@@ -1184,7 +1234,6 @@ fn shared_third_party_viewer_syncs_from_cli_agent_state_without_ambient_model() 
         });
     });
 }
-
 #[test]
 fn cloud_mode_followup_input_uses_explicit_submit_event_even_when_view_pending() {
     App::test((), |mut app| async move {
@@ -1256,7 +1305,7 @@ fn pending_cloud_followup_without_ambient_model_restores_prompt() {
 }
 
 #[test]
-fn cloud_mode_dispatched_agent_inserts_pending_user_query() {
+fn cloud_mode_dispatched_agent_inserts_queued_user_query() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
@@ -1293,64 +1342,13 @@ fn cloud_mode_dispatched_agent_inserts_pending_user_query() {
                 });
             view.handle_ambient_agent_event(&AmbientAgentViewModelEvent::DispatchedAgent, ctx);
 
-            assert!(has_pending_cloud_mode_user_query_block(view));
+            assert!(has_pending_user_query_block(view));
         });
     });
 }
 
 #[test]
-fn cloud_mode_dispatched_agent_removes_pending_user_query_when_harness_starts() {
-    App::test((), |mut app| async move {
-        initialize_app_for_terminal_view(&mut app);
-        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
-        let _cloud_mode = FeatureFlag::CloudMode.override_enabled(true);
-        let _handoff = FeatureFlag::HandoffCloudCloud.override_enabled(true);
-        let _setup_v2 = FeatureFlag::CloudModeSetupV2.override_enabled(true);
-
-        let terminal = add_window_with_cloud_mode_terminal(&mut app);
-
-        terminal.update(&mut app, |view, ctx| {
-            view.ambient_agent_view_model()
-                .expect("cloud mode terminal should have ambient model")
-                .update(ctx, |model, ctx| {
-                    model.spawn_agent_with_request(
-                        SpawnAgentRequest {
-                            prompt: "write the tests".to_string(),
-                            mode: UserQueryMode::Normal,
-                            config: None,
-                            title: None,
-                            team: None,
-                            agent_identity_uid: None,
-                            skill: None,
-                            attachments: vec![],
-                            interactive: None,
-                            parent_run_id: None,
-                            runtime_skills: vec![],
-                            referenced_attachments: vec![],
-                            conversation_id: None,
-                            initial_snapshot_token: None,
-                            snapshot_disabled: None,
-                        },
-                        ctx,
-                    );
-                });
-            view.handle_ambient_agent_event(&AmbientAgentViewModelEvent::DispatchedAgent, ctx);
-            assert!(has_pending_cloud_mode_user_query_block(view));
-
-            view.handle_ambient_agent_event(
-                &AmbientAgentViewModelEvent::HarnessCommandStarted {
-                    block_id: BlockId::from("test-block".to_string()),
-                },
-                ctx,
-            );
-
-            assert!(!has_pending_cloud_mode_user_query_block(view));
-        });
-    });
-}
-
-#[test]
-fn cloud_mode_failed_keeps_pending_prompt_and_hides_input() {
+fn cloud_mode_failed_keeps_queued_query_above_tombstone_and_hides_input() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
@@ -1366,7 +1364,10 @@ fn cloud_mode_failed_keeps_pending_prompt_and_hides_input() {
                 .set_shared_session_status(SharedSessionStatus::ViewPending);
             view.enter_ambient_agent_setup(None, ctx);
             view.insert_cloud_mode_queued_user_query_block("queued prompt".to_string(), ctx);
-            assert!(has_pending_cloud_mode_user_query_block(view));
+            assert!(has_pending_user_query_block(view));
+            let pending_query_view_id = view
+                .pending_user_query_view_id
+                .expect("queued query should have a view id");
 
             view.handle_ambient_agent_event(
                 &AmbientAgentViewModelEvent::Failed {
@@ -1375,14 +1376,46 @@ fn cloud_mode_failed_keeps_pending_prompt_and_hides_input() {
                 ctx,
             );
 
-            // CloudModeSetupV2 keeps the pending cloud-mode prompt across `Failed` so the
-            // user can see what they had asked for above the tombstone.
-            assert!(has_pending_cloud_mode_user_query_block(view));
+            assert!(has_pending_user_query_block(view));
             assert!(view.conversation_ended_tombstone_view_id.is_some());
             assert_eq!(view.rich_content_views.len(), 2);
             {
                 let model = view.model.lock();
                 assert!(!view.is_input_box_visible(&model, ctx));
+                let tombstone_view_id = view
+                    .conversation_ended_tombstone_view_id
+                    .expect("failed cloud mode should insert a tombstone");
+                let rich_content_view_ids = model
+                    .block_list()
+                    .block_heights()
+                    .items()
+                    .iter()
+                    .filter_map(|item| {
+                        match item {
+                            crate::terminal::model::blocks::BlockHeightItem::RichContent(item) => {
+                                Some(item.view_id)
+                            }
+                            crate::terminal::model::blocks::BlockHeightItem::Block(_)
+                            | crate::terminal::model::blocks::BlockHeightItem::Gap(_)
+                            | crate::terminal::model::blocks::BlockHeightItem::RestoredBlockSeparator {
+                                ..
+                            }
+                            | crate::terminal::model::blocks::BlockHeightItem::InlineBanner { .. }
+                            | crate::terminal::model::blocks::BlockHeightItem::SubshellSeparator {
+                                ..
+                            } => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let pending_query_position = rich_content_view_ids
+                    .iter()
+                    .position(|view_id| *view_id == pending_query_view_id)
+                    .expect("queued query should be in the block list");
+                let tombstone_position = rich_content_view_ids
+                    .iter()
+                    .position(|view_id| *view_id == tombstone_view_id)
+                    .expect("tombstone should be in the block list");
+                assert!(pending_query_position < tombstone_position);
             }
 
             view.handle_ambient_agent_event(
@@ -1418,7 +1451,7 @@ fn cloud_mode_failed_keeps_pending_prompt_and_hides_input() {
 }
 
 #[test]
-fn cloud_mode_followup_dispatched_inserts_pending_user_query() {
+fn cloud_mode_followup_dispatched_inserts_queued_user_query() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
@@ -1439,7 +1472,7 @@ fn cloud_mode_followup_dispatched_inserts_pending_user_query() {
                 });
             view.handle_ambient_agent_event(&AmbientAgentViewModelEvent::FollowupDispatched, ctx);
 
-            assert!(has_pending_cloud_mode_user_query_block(view));
+            assert!(has_pending_user_query_block(view));
         });
     });
 }
@@ -1501,6 +1534,99 @@ fn cloud_mode_setup_v2_suppresses_sharer_input_updates_while_followup_setup_comm
 
             let model = view.model.lock();
             assert!(view.is_input_box_visible(&model, ctx));
+        });
+    });
+}
+
+#[test]
+fn pending_cloud_mode_query_waits_for_renderable_user_query_exchange() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |view, ctx| {
+            view.insert_cloud_mode_queued_user_query_block("queued prompt".to_string(), ctx);
+            assert!(has_pending_user_query_block(view));
+
+            append_exchange_and_handle_event(
+                view,
+                AIAgentInput::ResumeConversation {
+                    context: Default::default(),
+                },
+                ctx,
+            );
+            assert!(has_pending_user_query_block(view));
+
+            append_exchange_and_handle_event(
+                view,
+                AIAgentInput::UserQuery {
+                    query: "real prompt".to_string(),
+                    context: Default::default(),
+                    static_query_type: None,
+                    referenced_attachments: Default::default(),
+                    user_query_mode: UserQueryMode::default(),
+                    running_command: None,
+                    intended_agent: None,
+                },
+                ctx,
+            );
+            assert!(!has_pending_user_query_block(view));
+        });
+    });
+}
+
+#[test]
+fn pending_cloud_mode_query_clears_when_streaming_exchange_becomes_renderable() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |view, ctx| {
+            view.insert_cloud_mode_queued_user_query_block(
+                "write a poem about rocks".to_string(),
+                ctx,
+            );
+            assert!(has_pending_user_query_block(view));
+
+            let (conversation_id, _, exchange_id, response_stream_id) =
+                append_exchange_with_inputs_and_handle_event(view, vec![], ctx);
+            assert!(has_pending_user_query_block(view));
+
+            update_exchange_input_and_handle_event(
+                view,
+                conversation_id,
+                exchange_id,
+                response_stream_id,
+                vec![AIAgentInput::UserQuery {
+                    query: "write an ode about stones".to_string(),
+                    context: Default::default(),
+                    static_query_type: None,
+                    referenced_attachments: Default::default(),
+                    user_query_mode: UserQueryMode::Normal,
+                    running_command: None,
+                    intended_agent: None,
+                }],
+                ctx,
+            );
+            assert!(!has_pending_user_query_block(view));
+
+            let conversation = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .expect("conversation should exist");
+            let initial_user_query = conversation.initial_user_query();
+            let exchange = conversation
+                .exchange_with_id(exchange_id)
+                .expect("exchange should exist");
+            assert_eq!(
+                exchange.input[0]
+                    .display_user_query(initial_user_query.as_ref())
+                    .as_deref(),
+                Some("/agent write an ode about stones")
+            );
         });
     });
 }

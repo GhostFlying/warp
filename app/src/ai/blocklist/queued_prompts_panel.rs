@@ -11,15 +11,15 @@ use pathfinder_geometry::rect::RectF;
 use warp_core::features::FeatureFlag;
 use warpui::elements::{
     Border, ChildView, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DragAxis,
-    Draggable, DraggableState, Empty, Expanded, Fill, Flex, Hoverable, MouseStateHandle, Padding,
+    Draggable, DraggableState, Empty, Expanded, Fill, Flex, Hoverable, MouseStateHandle,
     ParentElement, Radius, SavePosition, Text, DEFAULT_UI_LINE_HEIGHT_RATIO,
 };
 use warpui::fonts::{Properties, Style, Weight};
 use warpui::platform::Cursor;
 use warpui::text_layout::ClipConfig;
 use warpui::{
-    AppContext, BlurContext, Element, Entity, EntityId, EventContext, FocusContext, ModelHandle,
-    SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
+    AppContext, BlurContext, Element, Entity, EntityId, FocusContext, ModelHandle, SingletonEntity,
+    TypedActionView, View, ViewContext, ViewHandle,
 };
 
 use crate::ai::blocklist::context_model::BlocklistAIContextModel;
@@ -29,6 +29,7 @@ use crate::editor::{EditorView, Event as EditorEvent, SingleLineEditorOptions, T
 use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::TelemetryEvent;
 use crate::ui_components::icons::Icon;
+use crate::view_components::action_button::{ActionButton, ButtonSize, NakedTheme};
 
 /// Returns the position-cache id used to look up a row's bounding rect during a drag.
 /// Indexed by the row's current visual index so swaps maintain stable lookups.
@@ -36,11 +37,42 @@ fn queue_row_position_id(panel_view_id: EntityId, index: usize) -> String {
     format!("queued_prompts_panel:{panel_view_id:?}:row:{index}")
 }
 
-#[derive(Clone, Default)]
+fn build_row_state(
+    query_id: QueuedQueryId,
+    ctx: &mut ViewContext<QueuedPromptsPanelView>,
+) -> QueuedPromptRowState {
+    let edit_button = ctx.add_typed_action_view(move |_| {
+        ActionButton::new("", NakedTheme)
+            .with_icon(Icon::Pencil)
+            .with_tooltip("Edit queued prompt")
+            .with_size(ButtonSize::XSmall)
+            .on_click(move |ctx| {
+                ctx.dispatch_typed_action(QueuedPromptsPanelAction::StartEditingRow(query_id));
+            })
+    });
+    let delete_button = ctx.add_typed_action_view(move |_| {
+        ActionButton::new("", NakedTheme)
+            .with_icon(Icon::Trash)
+            .with_tooltip("Delete queued prompt")
+            .with_size(ButtonSize::XSmall)
+            .on_click(move |ctx| {
+                ctx.dispatch_typed_action(QueuedPromptsPanelAction::DeleteRow(query_id));
+            })
+    });
+
+    QueuedPromptRowState {
+        mouse_state: MouseStateHandle::default(),
+        edit_button,
+        delete_button,
+        draggable_state: DraggableState::default(),
+    }
+}
+
+#[derive(Clone)]
 struct QueuedPromptRowState {
     mouse_state: MouseStateHandle,
-    edit_button_mouse_state: MouseStateHandle,
-    delete_button_mouse_state: MouseStateHandle,
+    edit_button: ViewHandle<ActionButton>,
+    delete_button: ViewHandle<ActionButton>,
     draggable_state: DraggableState,
 }
 
@@ -127,14 +159,7 @@ impl QueuedPromptsPanelView {
         });
 
         ctx.subscribe_to_model(&queued_query_model, Self::handle_queued_query_event);
-        ctx.subscribe_to_model(&ai_context_model, |_, _, event, ctx| {
-            if matches!(
-                event,
-                crate::ai::blocklist::BlocklistAIContextEvent::PendingQueryStateUpdated
-            ) {
-                ctx.notify();
-            }
-        });
+        ctx.subscribe_to_model(&ai_context_model, |_, _, _, ctx| ctx.notify());
 
         Self {
             view_id: ctx.view_id(),
@@ -180,6 +205,7 @@ impl QueuedPromptsPanelView {
                     .unwrap_or_default();
                 self.edit_editor.update(ctx, |editor, ctx| {
                     editor.system_reset_buffer_text(&initial_text, ctx);
+                    editor.select_all(ctx);
                 });
                 ctx.focus(&self.edit_editor);
             }
@@ -193,7 +219,9 @@ impl QueuedPromptsPanelView {
                 self.clear_drag_state();
             }
             QueuedQueryEvent::Appended { query_id, .. } => {
-                self.row_states.entry(*query_id).or_default();
+                self.row_states
+                    .entry(*query_id)
+                    .or_insert_with(|| build_row_state(*query_id, ctx));
             }
             QueuedQueryEvent::Replaced { .. }
             | QueuedQueryEvent::Reordered { .. }
@@ -284,7 +312,7 @@ impl QueuedPromptsPanelView {
         });
         if let Some(removed) = removed {
             ctx.emit(QueuedPromptsPanelEvent::RowDeletedForInputPlacement {
-                text: removed.into_text(),
+                text: removed.text().to_owned(),
             });
         }
     }
@@ -706,8 +734,8 @@ fn render_row(props: RenderRowProps<'_>) -> Box<dyn Element> {
 
     let QueuedPromptRowState {
         mouse_state,
-        edit_button_mouse_state,
-        delete_button_mouse_state,
+        edit_button,
+        delete_button,
         draggable_state,
     } = row_state;
 
@@ -744,27 +772,9 @@ fn render_row(props: RenderRowProps<'_>) -> Box<dyn Element> {
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
                 .with_spacing(4.);
             if !is_in_edit_mode {
-                buttons.add_child(render_action_button(
-                    Icon::Pencil,
-                    foreground_color,
-                    dimmed_color,
-                    edit_button_mouse_state.clone(),
-                    move |ctx| {
-                        ctx.dispatch_typed_action(QueuedPromptsPanelAction::StartEditingRow(
-                            query_id,
-                        ));
-                    },
-                ));
+                buttons.add_child(ChildView::new(&edit_button).finish());
             }
-            buttons.add_child(render_action_button(
-                Icon::Trash,
-                foreground_color,
-                dimmed_color,
-                delete_button_mouse_state.clone(),
-                move |ctx| {
-                    ctx.dispatch_typed_action(QueuedPromptsPanelAction::DeleteRow(query_id));
-                },
-            ));
+            buttons.add_child(ChildView::new(&delete_button).finish());
             row.add_child(buttons.finish());
         }
 
@@ -807,36 +817,4 @@ fn render_row(props: RenderRowProps<'_>) -> Box<dyn Element> {
 /// Returns the user-visible header label for `count` queued prompts.
 fn header_label_text(count: usize) -> String {
     format!("{count} queued")
-}
-
-fn render_action_button<F>(
-    icon: Icon,
-    hovered_color: ColorU,
-    base_color: ColorU,
-    mouse_state: MouseStateHandle,
-    on_click: F,
-) -> Box<dyn Element>
-where
-    F: Fn(&mut EventContext) + Clone + 'static,
-{
-    Hoverable::new(mouse_state, move |state| {
-        let icon_element = ConstrainedBox::new(
-            icon.to_warpui_icon(if state.is_hovered() {
-                hovered_color.into()
-            } else {
-                base_color.into()
-            })
-            .finish(),
-        )
-        .with_height(16.)
-        .with_width(16.)
-        .finish();
-        Container::new(icon_element)
-            .with_padding(Padding::uniform(2.))
-            .with_corner_radius(CornerRadius::with_all(Radius::Pixels(3.)))
-            .finish()
-    })
-    .with_cursor(Cursor::PointingHand)
-    .on_click(move |ctx, _, _| on_click(ctx))
-    .finish()
 }

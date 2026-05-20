@@ -12130,6 +12130,8 @@ impl Workspace {
                 if let Some(prompt) = initial_prompt {
                     terminal_view.send_user_query_after_next_conversation_finished(
                         prompt,
+                        /* show_close_button */ true,
+                        /* show_send_now_button */ false,
                         terminal_view_ctx,
                     );
                 }
@@ -12223,7 +12225,10 @@ impl Workspace {
             });
 
             if let Some(prompt) = initial_prompt {
-                terminal.send_user_query_after_next_conversation_finished(prompt, ctx);
+                terminal.send_user_query_after_next_conversation_finished(
+                    prompt, /* show_close_button */ true,
+                    /* show_send_now_button */ false, ctx,
+                );
             }
         });
     }

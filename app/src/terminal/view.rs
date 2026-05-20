@@ -61,6 +61,7 @@ use crate::ai::blocklist::agent_view::{
     ExitConfirmationTrigger, InlineAgentViewHeader, OrchestrationPillBar,
     ENTER_OR_EXIT_CONFIRMATION_WINDOW,
 };
+use crate::ai::conversation_details_panel::ConversationDetailsPanelEvent;
 use crate::ai::conversation_utils;
 use crate::ai::predict::prompt_suggestions::{
     has_pending_code_or_unit_test_prompt_suggestion,
@@ -122,7 +123,10 @@ use crate::ai::blocklist::codebase_index_speedbump_banner::{
     CodebaseIndexSpeedbumpBannerAction, CodebaseIndexSpeedbumpBannerState, VisibilityState,
 };
 use crate::ai::blocklist::model::AIBlockOutputStatus;
-use crate::ai::blocklist::{AutofireAction, QueuedQueryModel};
+use crate::ai::blocklist::{
+    AutofireAction, QueuedPromptsPanelEvent, QueuedQuery, QueuedQueryId, QueuedQueryModel,
+    QueuedQueryOrigin,
+};
 #[cfg(feature = "local_fs")]
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::code_review::comments::{
@@ -2458,6 +2462,7 @@ pub fn is_prompt_suggestions_enabled(app: &AppContext) -> bool {
 type TerminalViewCallback = Box<dyn FnOnce(&mut TerminalView, &mut ViewContext<TerminalView>)>;
 type ConversationFinishedCallback =
     Box<dyn FnOnce(&mut TerminalView, FinishReason, &mut ViewContext<TerminalView>)>;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::terminal::view) enum PendingUserQueryKind {
     QueuedPrompt,
@@ -2677,7 +2682,6 @@ pub struct TerminalView {
     rich_content_views: Vec<RichContent>,
     pending_user_query_view_id: Option<EntityId>,
     pending_user_query_kind: Option<PendingUserQueryKind>,
-    pending_user_query_conversation_id: Option<AIConversationId>,
     queued_prompt_callback: Option<ConversationFinishedCallback>,
 
     /// Cached view ids for usage footers keyed by the AI block view id that owns them.
@@ -3247,6 +3251,8 @@ impl TerminalView {
                 } => {
                     // Prompt suggestions should not follow the user back to terminal view.
                     me.clear_prompt_suggestions(ctx);
+                    me.queued_query_model
+                        .update(ctx, |model, ctx| model.clear_all(ctx));
                     // For ambient agent sessions, pop the pane stack to return to the parent terminal.
                     // Skip the pop when this exit is immediately followed by re-entering agent view
                     // for a different conversation (e.g. a restored conversation taking over the
@@ -3386,6 +3392,7 @@ impl TerminalView {
                             ctx,
                         );
                     }
+
                     let active_conversation_id = me
                         .agent_view_controller
                         .as_ref(ctx)
@@ -3395,10 +3402,12 @@ impl TerminalView {
                         me.pending_user_query_conversation_id();
                     let should_keep_pending_user_query = active_conversation_id.is_some()
                         && active_conversation_id == pending_user_query_conversation_id;
+
+                    // Keep the pending query only when the user is still viewing the conversation
+                    // targeted by that pending query; otherwise cancel it.
                     if !should_keep_pending_user_query {
                         me.remove_pending_user_query_block(ctx);
                     }
-
                     me.maybe_run_pending_cloud_mode_start_callback(ctx);
 
                     ctx.notify();
@@ -3707,10 +3716,7 @@ impl TerminalView {
         );
         let terminal_content_element_position_id =
             format!("terminal_content_element_{}", ctx.view_id());
-        let queued_query_model = BlocklistAIHistoryModel::handle(ctx)
-            .update(ctx, |history, ctx| {
-                history.queued_query_model_for_terminal_view(terminal_view_id, ctx)
-            });
+        let queued_query_model = ctx.add_model(|_| QueuedQueryModel::new());
         let queued_query_model_for_input = queued_query_model.clone();
 
         let input: ViewHandle<Input> = ctx.add_typed_action_view(|ctx| {
@@ -4173,7 +4179,6 @@ impl TerminalView {
             )
         });
         ctx.subscribe_to_view(&conversation_details_panel, |me, _, event, ctx| {
-            use crate::ai::conversation_details_panel::ConversationDetailsPanelEvent;
             match event {
                 ConversationDetailsPanelEvent::Close => {
                     me.is_conversation_details_panel_open = false;
@@ -4261,7 +4266,6 @@ impl TerminalView {
             rich_content_views: Vec::new(),
             pending_user_query_view_id: None,
             pending_user_query_kind: None,
-            pending_user_query_conversation_id: None,
             queued_prompt_callback: None,
             usage_footer_view_ids: Default::default(),
             block_onboarding_active: false,
@@ -4831,6 +4835,27 @@ impl TerminalView {
             .push(Box::new(callback));
     }
 
+    fn handle_finished_conversation(
+        &mut self,
+        conversation_id: AIConversationId,
+        finish_reason: FinishReason,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let queued_prompt = self.queued_prompt_callback.take();
+        self.drain_queued_prompts(conversation_id, finish_reason, ctx);
+
+        let callbacks = self
+            .conversation_completed_callbacks
+            .drain(..)
+            .collect_vec();
+        for callback in callbacks {
+            callback(self, finish_reason, ctx);
+        }
+        if let Some(callback) = queued_prompt {
+            callback(self, finish_reason, ctx);
+        }
+    }
+
     #[cfg(feature = "local_fs")]
     fn handle_git_repo_status_event(&mut self, ctx: &mut ViewContext<Self>) {
         if let Some(deferred) = self.deferred_code_review_open.take() {
@@ -4991,6 +5016,15 @@ impl TerminalView {
                 // Focus the block so that the user can interact
                 // with any blocking actions (if any).
                 self.focus_ai_block_if_self_focused(active_ai_block, ctx);
+
+                // A new exchange is already active, so callbacks for the
+                // just-finished exchange will be skipped. Clear any pending
+                // user query now to prevent its callback from firing when
+                // the new exchange eventually completes.
+                //
+                // However, if the active block belongs to the same conversation
+                // that has the queued prompt (e.g. a blocked tool-call approval),
+                // keep the pending query — the conversation hasn't truly moved on.
                 let active_block_conversation_id = active_ai_block.as_ref(ctx).conversation_id();
                 let pending_query_conversation_id = self.pending_user_query_conversation_id();
                 let is_same_conversation = pending_query_conversation_id
@@ -5005,19 +5039,7 @@ impl TerminalView {
             }
 
             if let Some(reason) = finish_reason {
-                let queued_prompt = self.queued_prompt_callback.take();
-                self.drain_queued_prompts(*conversation_id, reason, ctx);
-
-                let callbacks = self
-                    .conversation_completed_callbacks
-                    .drain(..)
-                    .collect_vec();
-                for callback in callbacks {
-                    callback(self, reason, ctx);
-                }
-                if let Some(callback) = queued_prompt {
-                    callback(self, reason, ctx);
-                }
+                self.handle_finished_conversation(*conversation_id, reason, ctx);
             }
 
             // If the most recent action in the current interaction turn created or updated a plan
@@ -5079,19 +5101,15 @@ impl TerminalView {
     pub fn enqueue_prompt(
         &mut self,
         prompt: String,
-        origin: crate::ai::blocklist::QueuedQueryOrigin,
+        origin: QueuedQueryOrigin,
         ctx: &mut ViewContext<Self>,
-    ) -> Option<crate::ai::blocklist::QueuedQueryId> {
+    ) -> Option<QueuedQueryId> {
         let conversation_id = self
             .ai_context_model
             .as_ref(ctx)
             .selected_conversation_id(ctx)?;
         let id = self.queued_query_model.update(ctx, |model, ctx| {
-            model.append(
-                conversation_id,
-                crate::ai::blocklist::QueuedQuery::new(prompt, origin),
-                ctx,
-            )
+            model.append(conversation_id, QueuedQuery::new(prompt, origin), ctx)
         });
         Some(id)
     }
@@ -5100,10 +5118,9 @@ impl TerminalView {
     /// doesn't own because the input editor lives on `Input`.
     fn handle_queued_prompts_panel_event(
         &mut self,
-        event: &crate::ai::blocklist::QueuedPromptsPanelEvent,
+        event: &QueuedPromptsPanelEvent,
         ctx: &mut ViewContext<Self>,
     ) {
-        use crate::ai::blocklist::QueuedPromptsPanelEvent;
         match event {
             QueuedPromptsPanelEvent::RowDeletedForInputPlacement { text } => {
                 let text = text.clone();
@@ -5144,7 +5161,7 @@ impl TerminalView {
                 if first_row_is_in_edit_mode && !input_is_empty {
                     return;
                 }
-                
+
                 let action = self.queued_query_model.update(ctx, |model, ctx| {
                     model.pop_for_autofire(conversation_id, None, ctx)
                 });
@@ -5608,7 +5625,16 @@ impl TerminalView {
                         .set_is_executing_oz_environment_startup_commands(false);
                 }
 
-                self.remove_pending_user_query_block(ctx);
+                // For an oz local-to-cloud handoff, the first `AppendedExchange` is the
+                // analogue of `HarnessCommandStarted` for non-oz harnesses: the moment we
+                // tear down the queued-prompt block in favor of the live agent UI.
+                if self
+                    .ambient_agent_view_model
+                    .as_ref()
+                    .is_some_and(|model| model.as_ref(ctx).is_local_to_cloud_handoff())
+                {
+                    self.remove_pending_user_query_block(ctx);
+                }
 
                 let should_add_ai_block = history_model
                     .as_ref(ctx)
@@ -5910,6 +5936,8 @@ impl TerminalView {
                 active_conversation_id,
                 ..
             } => {
+                self.queued_query_model
+                    .update(ctx, |model, ctx| model.clear_all(ctx));
                 if let Some(active_conversation_id) = active_conversation_id {
                     self.ai_controller.update(ctx, |controller, ctx| {
                         controller.cancel_conversation_progress(
@@ -5965,15 +5993,23 @@ impl TerminalView {
                         .retain(|view| view.view_id() != view_id_to_remove);
                 }
             }
+            BlocklistAIHistoryEvent::RemoveConversation {
+                conversation_id, ..
+            }
+            | BlocklistAIHistoryEvent::DeletedConversation {
+                conversation_id, ..
+            } => {
+                self.queued_query_model.update(ctx, |model, ctx| {
+                    model.clear_for_conversation(*conversation_id, ctx);
+                });
+            }
             BlocklistAIHistoryEvent::CreatedSubtask { .. }
             | BlocklistAIHistoryEvent::UpdatedAutoexecuteOverride { .. }
             | BlocklistAIHistoryEvent::UpdatedTodoList { .. }
-            | BlocklistAIHistoryEvent::RemoveConversation { .. }
             | BlocklistAIHistoryEvent::RestoredConversations { .. }
             | BlocklistAIHistoryEvent::UpgradedTask { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
             | BlocklistAIHistoryEvent::UpdatedConversationArtifacts { .. }
-            | BlocklistAIHistoryEvent::DeletedConversation { .. }
             | BlocklistAIHistoryEvent::ConversationServerTokenAssigned { .. }
             | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
             | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
