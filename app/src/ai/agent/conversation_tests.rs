@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::{
-    artifact_from_fork_proto, AIConversation, AIConversationAutoexecuteMode, AIConversationId,
+    AIConversation, AIConversationAutoexecuteMode, AIConversationId, artifact_from_fork_proto,
 };
 use crate::ai::artifacts::Artifact;
 use crate::persistence::model::AgentConversationData;
@@ -247,6 +247,168 @@ fn restored_conversation_ignores_persisted_autoexecute_override_when_disabled() 
         conversation.autoexecute_override(),
         AIConversationAutoexecuteMode::RespectUserSettings
     );
+}
+
+#[test]
+fn mixed_warp_and_byok_usage_survives_conversation_usage_ingestion() {
+    const CUSTOM_SLUG: &str = "custom-model-slug";
+    const HOSTED_MODEL: &str = "claude-3-5-sonnet";
+
+    let mut conversation = AIConversation::new(false, false);
+    let usage_metadata = api::response_event::stream_finished::ConversationUsageMetadata {
+        context_window_usage: 0.0,
+        summarized: false,
+        credits_spent: 0.0,
+        tool_usage_metadata: None,
+        warp_token_usage: HashMap::from([(
+            HOSTED_MODEL.to_string(),
+            api::response_event::stream_finished::ModelTokenUsage {
+                total_tokens: 42,
+                token_usage_by_category: HashMap::from([("primary_agent".to_string(), 42)]),
+                ..Default::default()
+            },
+        )]),
+        byok_token_usage: HashMap::from([(
+            CUSTOM_SLUG.to_string(),
+            api::response_event::stream_finished::ModelTokenUsage {
+                total_tokens: 17,
+                token_usage_by_category: HashMap::from([("primary_agent".to_string(), 17)]),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+
+    conversation
+        .update_cost_and_usage_for_request(None, vec![], Some(usage_metadata), false)
+        .unwrap();
+
+    let token_usage = conversation.token_usage();
+    assert_eq!(token_usage.len(), 2);
+
+    let hosted = token_usage
+        .iter()
+        .find(|u| u.model_id == HOSTED_MODEL)
+        .expect("hosted model entry should exist");
+    assert_eq!(hosted.warp_tokens, 42);
+    assert_eq!(
+        hosted
+            .warp_token_usage_by_category
+            .get("primary_agent"),
+        Some(&42)
+    );
+
+    let custom = token_usage
+        .iter()
+        .find(|u| u.model_id == CUSTOM_SLUG)
+        .expect("custom slug entry should exist");
+    assert_eq!(custom.byok_tokens, 17);
+    assert_eq!(
+        custom
+            .byok_token_usage_by_category
+            .get("primary_agent"),
+        Some(&17)
+    );
+}
+
+#[test]
+fn byok_custom_slug_with_multiple_categories_survives_ingestion() {
+    const CUSTOM_SLUG: &str = "custom-model-slug";
+
+    let mut conversation = AIConversation::new(false, false);
+    let usage_metadata = api::response_event::stream_finished::ConversationUsageMetadata {
+        context_window_usage: 0.0,
+        summarized: false,
+        credits_spent: 0.0,
+        tool_usage_metadata: None,
+        warp_token_usage: HashMap::new(),
+        byok_token_usage: HashMap::from([(
+            CUSTOM_SLUG.to_string(),
+            api::response_event::stream_finished::ModelTokenUsage {
+                total_tokens: 25,
+                token_usage_by_category: HashMap::from([
+                    ("primary_agent".to_string(), 10),
+                    ("tool_summarization".to_string(), 15),
+                ]),
+                ..Default::default()
+            },
+        )]),
+        ..Default::default()
+    };
+
+    conversation
+        .update_cost_and_usage_for_request(None, vec![], Some(usage_metadata), false)
+        .unwrap();
+
+    let token_usage = conversation.token_usage();
+    assert_eq!(token_usage.len(), 1);
+    assert_eq!(token_usage[0].model_id, CUSTOM_SLUG);
+    assert_eq!(token_usage[0].byok_tokens, 25);
+    assert_eq!(
+        token_usage[0]
+            .byok_token_usage_by_category
+            .get("primary_agent"),
+        Some(&10)
+    );
+    assert_eq!(
+        token_usage[0]
+            .byok_token_usage_by_category
+            .get("tool_summarization"),
+        Some(&15)
+    );
+}
+
+#[test]
+fn multiple_distinct_byok_slugs_remain_separate_in_conversation_usage() {
+    const SLUG_A: &str = "custom-model-a";
+    const SLUG_B: &str = "custom-model-b";
+
+    let mut conversation = AIConversation::new(false, false);
+    let usage_metadata = api::response_event::stream_finished::ConversationUsageMetadata {
+        context_window_usage: 0.0,
+        summarized: false,
+        credits_spent: 0.0,
+        tool_usage_metadata: None,
+        warp_token_usage: HashMap::new(),
+        byok_token_usage: HashMap::from([
+            (
+                SLUG_A.to_string(),
+                api::response_event::stream_finished::ModelTokenUsage {
+                    total_tokens: 7,
+                    token_usage_by_category: HashMap::from([("primary_agent".to_string(), 7)]),
+                    ..Default::default()
+                },
+            ),
+            (
+                SLUG_B.to_string(),
+                api::response_event::stream_finished::ModelTokenUsage {
+                    total_tokens: 13,
+                    token_usage_by_category: HashMap::from([("primary_agent".to_string(), 13)]),
+                    ..Default::default()
+                },
+            ),
+        ]),
+        ..Default::default()
+    };
+
+    conversation
+        .update_cost_and_usage_for_request(None, vec![], Some(usage_metadata), false)
+        .unwrap();
+
+    let token_usage = conversation.token_usage();
+    assert_eq!(token_usage.len(), 2);
+
+    let usage_a = token_usage
+        .iter()
+        .find(|u| u.model_id == SLUG_A)
+        .expect("slug A entry should exist");
+    assert_eq!(usage_a.byok_tokens, 7);
+
+    let usage_b = token_usage
+        .iter()
+        .find(|u| u.model_id == SLUG_B)
+        .expect("slug B entry should exist");
+    assert_eq!(usage_b.byok_tokens, 13);
 }
 
 #[test]
