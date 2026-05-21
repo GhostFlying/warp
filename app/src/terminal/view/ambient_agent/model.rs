@@ -34,11 +34,11 @@ use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
 use crate::cloud_object::CloudObjectLookup as _;
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::{ServerId, SyncId};
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use crate::server::server_api::ai::InitialSnapshotToken;
 use crate::server::server_api::ai::{
     AgentConfigSnapshot, AmbientAgentTaskState, AttachmentInput, SpawnAgentRequest,
 };
+#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+use crate::server::server_api::ai::{InitialSnapshotToken, OrchestrationHandoffInfo};
 use crate::server::server_api::{
     AIApiError, ClientError, CloudAgentCapacityError, ServerApiProvider,
 };
@@ -158,6 +158,11 @@ pub(crate) struct PendingHandoff {
     /// stashed here so `maybe_auto_submit_handoff` can consume it once
     /// the touched workspace and snapshot upload have settled.
     pub(crate) auto_submit: Option<PendingCloudLaunch>,
+    /// Orchestration relationships the source conversation had at handoff time.
+    /// `None` when the source had no orchestration; `Some(_)` when at least one
+    /// bit is true. Forwarded verbatim to the server as
+    /// `SpawnAgentRequest.orchestration_handoff`.
+    pub(crate) orchestration_handoff: Option<OrchestrationHandoffInfo>,
 }
 
 /// Status of the ambient agent run.
@@ -645,6 +650,10 @@ impl AmbientAgentViewModel {
             initial_snapshot_token,
             agent_identity_uid: None,
             snapshot_disabled: should_disable_snapshot(ctx).then_some(true),
+            orchestration_handoff: self
+                .pending_handoff
+                .as_ref()
+                .and_then(|h| h.orchestration_handoff.clone()),
         }
     }
 
@@ -1133,6 +1142,7 @@ impl AmbientAgentViewModel {
             conversation_id: None,
             initial_snapshot_token: None,
             snapshot_disabled: should_disable_snapshot(ctx).then_some(true),
+            orchestration_handoff: None,
         };
 
         self.spawn_internal(request, ctx);
