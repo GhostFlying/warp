@@ -152,14 +152,42 @@ pub fn list_instances_from_dir(dir: &Path) -> Vec<InstanceRecord> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
     };
-    let mut records = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| fs::read_to_string(entry.path()).ok())
-        .filter_map(|contents| serde_json::from_str::<InstanceRecord>(&contents).ok())
-        .filter(|record| record.protocol_version == PROTOCOL_VERSION)
-        .collect::<Vec<_>>();
+    let mut records = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let contents = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let record = match serde_json::from_str::<InstanceRecord>(&contents) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if record.protocol_version != PROTOCOL_VERSION {
+            continue;
+        }
+        if !is_pid_alive(record.pid) {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+        records.push(record);
+    }
     records.sort_by_key(|record| record.started_at);
     records
+}
+
+#[cfg(unix)]
+fn is_pid_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+}
+
+#[cfg(not(unix))]
+fn is_pid_alive(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output()
+        .map(|o| !String::from_utf8_lossy(&o.stdout).contains("No tasks"))
+        .unwrap_or(true)
 }
 
 fn record_path(dir: &Path, instance_id: &InstanceId) -> PathBuf {

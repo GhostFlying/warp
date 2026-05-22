@@ -1,11 +1,11 @@
 use std::net::SocketAddr;
 
+use ::local_control::protocol::{PaneTarget, TabTarget, TargetSelector, WindowTarget};
 use ::local_control::{
     ActionKind, AuthToken, ControlEndpoint, ControlError, ControlResponse, ErrorCode,
     ErrorResponseEnvelope, InstanceId, InstanceRecord, RegisteredInstance, RequestEnvelope,
     ResponseEnvelope, PROTOCOL_VERSION,
 };
-use ::local_control::protocol::{PaneTarget, TabTarget, TargetSelector, WindowTarget};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -230,12 +230,16 @@ impl LocalControlBridge {
         ctx: &mut ModelContext<Self>,
     ) -> Result<serde_json::Value, ControlError> {
         validate_tab_create_target(target)?;
-        let window_id = ctx.windows().active_window().ok_or_else(|| {
-            ControlError::new(
-                ErrorCode::InvalidSelector,
-                "tab.create requires an active Warp window",
-            )
-        })?;
+        let window_id = ctx
+            .windows()
+            .active_window()
+            .or_else(|| ctx.windows().ordered_window_ids().into_iter().next())
+            .ok_or_else(|| {
+                ControlError::new(
+                    ErrorCode::InvalidSelector,
+                    "tab.create requires at least one open Warp window",
+                )
+            })?;
         let workspace = ctx
             .views_of_type::<Workspace>(window_id)
             .and_then(|workspaces| workspaces.into_iter().next())

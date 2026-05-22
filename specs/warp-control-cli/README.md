@@ -13,20 +13,22 @@ The local-control protocol and catalog are broader than this slice, but commands
 - the app-side bridge owns the per-process loopback listener and dispatches supported actions onto the live Warp UI context.
 The binary should initialize only CLI parsing, instance discovery, local authentication loading, request serialization, HTTP transport, and output formatting. It should not initialize GUI state, terminal models, rendering, workspaces, or main-app startup paths.
 During the provisional naming period, release artifacts and helper names may be channelized, but operator docs and examples should use `warpctrl` unless an integration branch explicitly documents a channel-specific alias.
+This branch wires the standalone binary target and the macOS/Linux bundle-script artifact selectors:
+- `cargo build -p warp --bin warpctrl`
+- `script/macos/bundle --artifact warpctrl ...`
+- `script/linux/bundle --artifact warpctrl ...`
+Windows has the native Rust binary target, but installer/release helper exposure remains follow-up packaging work.
 ## Install and invocation guidance
 ### macOS
-Use the `warpctrl` binary or helper installed by the matching Warp build. For packaged builds, this is expected to live with the app's bundled CLI helpers, such as:
-- `/Applications/Warp.app/Contents/Resources/bin/warpctrl` for stable-style installs;
-- the equivalent `WarpDev.app`, `WarpPreview.app`, `WarpLocal.app`, or `WarpOss.app` bundle path for non-stable channels.
-Add that helper directory to `PATH`, or create a symlink from a directory already on `PATH`.
+Build locally with `cargo build -p warp --bin warpctrl`, then run `target/debug/warpctrl` or copy/symlink that binary onto `PATH`.
+For distributable standalone artifact checks, use `script/macos/bundle --artifact warpctrl` with the desired channel/signing flags. The bundle script writes a standalone `warpctrl` binary into its macOS artifact output directory instead of embedding it in the GUI app bundle.
 ### Linux
-Use the `warpctrl` binary installed by the matching package or unpacked CLI artifact. Package installs should place it on `PATH`; tarball-style artifacts can be unpacked anywhere and invoked by absolute path or symlinked into a directory on `PATH`.
+Build locally with `cargo build -p warp --bin warpctrl`, then run `target/debug/warpctrl` or copy/symlink that binary onto `PATH`.
+For distributable standalone artifact checks, use `script/linux/bundle --artifact warpctrl` with the desired channel/package selection. The Linux bundle script routes packaging through the standalone control-binary artifact path; downstream package installation should place the emitted `warpctrl` binary according to that package format.
 Run `warpctrl --version` after installation to confirm the shell is resolving the expected build.
 ### Windows
-Use the installer-provided helper from the Warp install directory, expected under:
-- `<Warp install dir>\bin\warpctrl.cmd`, or
-- `<Warp install dir>\bin\warpctrl.exe` if the implementation branch ships a native standalone executable.
-Add the install directory's `bin` folder to `PATH` if the installer did not do so. In PowerShell, prefer quoting the full path if the install directory contains spaces.
+Build locally with `cargo build -p warp --bin warpctrl`, then run `target\debug\warpctrl.exe` or copy that binary onto `PATH`.
+The Windows-native binary target exists in this slice. Installer helper creation and release-artifact wiring still need a later packaging change before docs can promise an installer-provided `warpctrl` command.
 ## End-to-end local test flow
 Use matching app and CLI bits from the same branch or release artifact so the protocol version and action catalog agree.
 1. Start Warp and leave at least one window open.

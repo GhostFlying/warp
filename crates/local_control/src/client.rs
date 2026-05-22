@@ -29,14 +29,7 @@ pub fn send_request(
             err.to_string(),
         )
     })?;
-    if status.is_success() {
-        let envelope = serde_json::from_str::<ResponseEnvelope>(&text).map_err(|err| {
-            ControlError::with_details(
-                ErrorCode::InvalidRequest,
-                "failed to decode local-control response",
-                err.to_string(),
-            )
-        })?;
+    if let Ok(envelope) = serde_json::from_str::<ResponseEnvelope>(&text) {
         if let ControlResponse::Error { error } = &envelope.response {
             return Err(error.clone());
         }

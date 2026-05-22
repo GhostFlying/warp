@@ -7448,6 +7448,7 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "libc",
  "rand 0.8.6",
  "reqwest",
  "serde",
@@ -14650,6 +14651,7 @@ dependencies = [
  "jaq-all",
  "local_control",
  "serde",
+ "serde_json",
  "serial_test",
  "url",
  "uuid",
