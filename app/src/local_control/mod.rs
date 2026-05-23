@@ -593,6 +593,24 @@ impl LocalControlBridge {
                     Err(error) => ResponseEnvelope::error(request.request_id, error),
                 }
             }
+            ActionKind::TabRename => {
+                if let Err(error) = ensure_authenticated_user_matches(&grant, ctx) {
+                    return ResponseEnvelope::error(request.request_id, error);
+                }
+                if let Err(error) =
+                    ensure_action_allowed(grant.invocation_context, request.action.kind, ctx)
+                {
+                    return ResponseEnvelope::error(request.request_id, error);
+                }
+                match self.rename_tab(
+                    &request.target,
+                    request.action.params_as::<TabRenameParams>(),
+                    ctx,
+                ) {
+                    Ok(data) => ResponseEnvelope::ok(request.request_id, data),
+                    Err(error) => ResponseEnvelope::error(request.request_id, error),
+                }
+            }
             ActionKind::InputRun => {
                 if let Err(error) = ensure_authenticated_user_matches(&grant, ctx) {
                     return ResponseEnvelope::error(request.request_id, error);
@@ -839,6 +857,50 @@ impl LocalControlBridge {
         }))
     }
 
+    fn rename_tab(
+        &mut self,
+        target: &TargetSelector,
+        params: Result<TabRenameParams, ControlError>,
+        ctx: &mut ModelContext<Self>,
+    ) -> Result<serde_json::Value, ControlError> {
+        validate_tab_rename_target(target)?;
+        let params = params?;
+        let next_title = params.title.as_deref().map(str::trim).map(str::to_owned);
+        let entry = select_single_tab_for_mutation(target, ActionKind::TabRename, ctx)?;
+        let tab_id = entry.pane_group.id().to_string();
+        let window_id = entry.window_id.to_string();
+        let previous_title = entry
+            .pane_group
+            .read(ctx, |pane_group, ctx| pane_group.custom_title(ctx));
+        let changed = previous_title != next_title;
+        if changed {
+            let pane_group = entry.pane_group.clone();
+            let index = entry.index;
+            let title_for_update = next_title.clone();
+            let workspace = workspace_for_window(ActionKind::TabRename, entry.window_id, ctx)?;
+            workspace.update(ctx, move |workspace, ctx| match title_for_update {
+                Some(title) if index == workspace.active_tab_index() => {
+                    workspace.handle_action(&WorkspaceAction::SetActiveTabName(title), ctx);
+                }
+                Some(title) => {
+                    pane_group.update(ctx, |pane_group, ctx| {
+                        pane_group.set_title(&title, ctx);
+                    });
+                    ctx.dispatch_global_action("workspace:save_app", ());
+                    ctx.notify();
+                }
+                None => workspace.handle_action(&WorkspaceAction::ResetTabName(index), ctx),
+            });
+        }
+        Ok(json!({
+            "action": ActionKind::TabRename.as_str(),
+            "changed": changed,
+            "instance_id": self.instance_id.as_ref().map(|id| id.0.as_str()),
+            "window_id": window_id,
+            "tab_id": tab_id,
+            "title": next_title,
+        }))
+    }
     fn focus_app(
         &mut self,
         target: &TargetSelector,
@@ -2636,6 +2698,29 @@ fn pane_entries_for_tabs(
         .collect()
 }
 
+fn select_single_tab_for_mutation(
+    target: &TargetSelector,
+    action: ActionKind,
+    ctx: &mut ModelContext<LocalControlBridge>,
+) -> Result<TabEntry, ControlError> {
+    let mut entries = select_tab_entries(target, action, ctx)?;
+    if entries.len() > 1 {
+        return Err(ControlError::new(
+            ErrorCode::InvalidSelector,
+            format!(
+                "{} requires a single target tab; specify an active tab, tab id, tab index, or window",
+                action.as_str()
+            ),
+        ));
+    }
+    entries.pop().ok_or_else(|| {
+        ControlError::new(
+            ErrorCode::MissingTarget,
+            format!("{} requires a target tab", action.as_str()),
+        )
+    })
+}
+
 fn validate_drive_target(target: &TargetSelector, action: ActionKind) -> Result<(), ControlError> {
     if target.window.is_some()
         || target.tab.is_some()
@@ -2744,6 +2829,18 @@ fn validate_tab_create_target(target: &TargetSelector) -> Result<(), ControlErro
         ));
     }
     Ok(())
+}
+
+fn validate_tab_rename_target(target: &TargetSelector) -> Result<(), ControlError> {
+    reject_target_families(
+        ActionKind::TabRename,
+        target.pane.is_some()
+            || target.session.is_some()
+            || target.block.is_some()
+            || target.file.is_some()
+            || target.drive.is_some(),
+        "pane, session, block, file, or drive selectors",
+    )
 }
 
 fn validate_instance_metadata_read_target(
@@ -3199,7 +3296,19 @@ fn validate_action_params(action: &::local_control::Action) -> Result<(), Contro
         ActionKind::WindowClose => action.params_as::<WindowCloseParams>().map(|_| ()),
         ActionKind::TabActivate => action.params_as::<TabActivateParams>().map(|_| ()),
         ActionKind::TabMove => action.params_as::<TabMoveParams>().map(|_| ()),
-        ActionKind::TabRename => action.params_as::<TabRenameParams>().map(|_| ()),
+        ActionKind::TabRename => action.params_as::<TabRenameParams>().and_then(|params| {
+            if params
+                .title
+                .as_deref()
+                .is_some_and(|title| title.trim().is_empty())
+            {
+                return Err(ControlError::new(
+                    ErrorCode::InvalidParams,
+                    "tab.rename title must be non-empty when provided",
+                ));
+            }
+            Ok(())
+        }),
         ActionKind::TabClose => action.params_as::<TabCloseParams>().map(|_| ()),
         ActionKind::PaneSplit => action.params_as::<PaneSplitParams>().map(|_| ()),
         ActionKind::PaneFocus => action.params_as::<PaneFocusParams>().map(|_| ()),

@@ -1203,6 +1203,7 @@ impl ActionKind {
             | Self::WindowClose
             | Self::TabList
             | Self::TabCreate
+            | Self::TabRename
             | Self::PaneList
             | Self::SessionList
             | Self::BlockList
@@ -1365,7 +1366,8 @@ impl ActionKind {
             | Self::ThemeSet
             | Self::AppearanceSet
             | Self::AppearanceFontSize
-            | Self::AppearanceZoom => StateDataCategory::MetadataConfigurationMutation,
+            | Self::AppearanceZoom
+            | Self::TabRename => StateDataCategory::MetadataConfigurationMutation,
             Self::InputInsert
             | Self::InputReplace
             | Self::InputClear
@@ -1394,7 +1396,6 @@ impl ActionKind {
             | Self::TabCreate
             | Self::TabActivate
             | Self::TabMove
-            | Self::TabRename
             | Self::TabClose
             | Self::PaneSplit
             | Self::PaneFocus
@@ -1496,6 +1497,7 @@ impl ActionKind {
                 | Self::WindowFocus
                 | Self::WindowClose
                 | Self::TabCreate
+                | Self::TabRename
                 | Self::InputRun
                 | Self::DriveCreate
                 | Self::DriveUpdate
