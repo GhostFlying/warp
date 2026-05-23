@@ -340,7 +340,7 @@ fn default_permissions_preserve_security_categories() {
 }
 
 #[test]
-fn mutating_contract_actions_are_allowlisted_stubs_except_tab_create() {
+fn mutating_contract_actions_are_allowlisted_stubs_except_tab_create_and_file_mutations() {
     for action in [
         ActionKind::WindowCreate,
         ActionKind::WindowFocus,
@@ -368,8 +368,6 @@ fn mutating_contract_actions_are_allowlisted_stubs_except_tab_create() {
         ActionKind::SettingSet,
         ActionKind::SettingToggle,
         ActionKind::FileOpen,
-        ActionKind::FileWrite,
-        ActionKind::FileDelete,
         ActionKind::DriveCreate,
         ActionKind::DriveUpdate,
         ActionKind::DriveDelete,
@@ -383,6 +381,35 @@ fn mutating_contract_actions_are_allowlisted_stubs_except_tab_create() {
         );
         assert!(metadata.requires_authenticated_user);
         assert!(metadata.allowed_invocation_contexts.is_empty());
+    }
+}
+
+#[test]
+fn file_mutations_are_implemented_authenticated_underlying_data_mutations() {
+    for action in [ActionKind::FileWrite, ActionKind::FileDelete] {
+        let metadata = action.metadata();
+        assert_eq!(
+            metadata.implementation_status,
+            ActionImplementationStatus::Implemented
+        );
+        assert_eq!(metadata.risk_tier, RiskTier::MutatingDestructiveOrExecution);
+        assert_eq!(
+            metadata.state_data_category,
+            StateDataCategory::UnderlyingDataMutation
+        );
+        assert_eq!(
+            metadata.permission_category,
+            PermissionCategory::MutateUnderlyingData
+        );
+        assert!(metadata.requires_authenticated_user);
+        assert!(metadata.authenticated_user.required);
+        assert_eq!(
+            metadata.allowed_invocation_contexts,
+            vec![
+                InvocationContext::InsideWarp,
+                InvocationContext::OutsideWarp
+            ]
+        );
     }
 }
 

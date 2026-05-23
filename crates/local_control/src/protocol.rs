@@ -1202,6 +1202,8 @@ impl ActionKind {
             | Self::SettingGet
             | Self::SettingList
             | Self::FileList
+            | Self::FileWrite
+            | Self::FileDelete
             | Self::ProjectActive
             | Self::ProjectList
             | Self::DriveList
@@ -1460,8 +1462,10 @@ impl ActionKind {
         if matches!(
             self.default_risk_tier(),
             RiskTier::ReadOnlyMetadata | RiskTier::ReadOnlyTerminalData
-        ) || matches!(self, Self::TabCreate | Self::InputRun)
-        {
+        ) || matches!(
+            self,
+            Self::TabCreate | Self::InputRun | Self::FileWrite | Self::FileDelete
+        ) {
             return vec![
                 InvocationContext::InsideWarp,
                 InvocationContext::OutsideWarp,
