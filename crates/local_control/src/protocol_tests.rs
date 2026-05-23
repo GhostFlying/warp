@@ -267,6 +267,32 @@ fn tab_create_metadata_is_first_slice_logged_out_safe_mutation() {
 }
 
 #[test]
+fn tab_rename_metadata_is_implemented_authenticated_metadata_configuration_mutation() {
+    let metadata = ActionKind::TabRename.metadata();
+    assert_eq!(
+        metadata.implementation_status,
+        ActionImplementationStatus::Implemented
+    );
+    assert_eq!(metadata.risk_tier, RiskTier::MutatingNonDestructive);
+    assert_eq!(
+        metadata.state_data_category,
+        StateDataCategory::MetadataConfigurationMutation
+    );
+    assert!(metadata.requires_authenticated_user);
+    assert!(metadata.authenticated_user.required);
+    assert_eq!(
+        metadata.permission_category,
+        PermissionCategory::MutateMetadataConfiguration
+    );
+    assert_eq!(
+        metadata.allowed_invocation_contexts,
+        vec![
+            InvocationContext::InsideWarp,
+            InvocationContext::OutsideWarp
+        ]
+    );
+}
+#[test]
 fn owned_app_state_actions_are_implemented_authenticated_mutations() {
     for action in [
         ActionKind::AppFocus,
@@ -363,6 +389,10 @@ fn default_permissions_preserve_security_categories() {
         PermissionCategory::MutateUnderlyingData
     );
     assert_eq!(
+        ActionKind::TabRename.metadata().permission_category,
+        PermissionCategory::MutateMetadataConfiguration
+    );
+    assert_eq!(
         ActionKind::SettingSet.metadata().permission_category,
         PermissionCategory::MutateMetadataConfiguration
     );
@@ -385,7 +415,6 @@ fn mutating_contract_actions_are_allowlisted_stubs_except_implemented_mutations(
     for action in [
         ActionKind::TabActivate,
         ActionKind::TabMove,
-        ActionKind::TabRename,
         ActionKind::TabClose,
         ActionKind::PaneSplit,
         ActionKind::PaneFocus,
@@ -528,7 +557,6 @@ fn mutating_contract_preserves_distinct_permission_categories() {
         ActionKind::TabCreate,
         ActionKind::TabActivate,
         ActionKind::TabMove,
-        ActionKind::TabRename,
         ActionKind::TabClose,
         ActionKind::PaneSplit,
         ActionKind::PaneFocus,
@@ -547,6 +575,7 @@ fn mutating_contract_preserves_distinct_permission_categories() {
     }
 
     for action in [
+        ActionKind::TabRename,
         ActionKind::ThemeSet,
         ActionKind::AppearanceSet,
         ActionKind::AppearanceFontSize,

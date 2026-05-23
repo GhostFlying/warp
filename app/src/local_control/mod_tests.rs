@@ -38,7 +38,7 @@ use super::{
     setting_set_result, setting_toggle_result, theme_list_result, theme_set_result,
     validate_action_params, validate_app_focus_target, validate_block_get_target,
     validate_block_list_target, validate_drive_target, validate_file_mutation_target,
-    validate_instance_metadata_read_target, validate_tab_create_target,
+    validate_instance_metadata_read_target, validate_tab_create_target, validate_tab_rename_target,
     validate_terminal_read_target, validate_window_create_target, workspace_action_for_surface,
     LocalControlBridge,
 };
@@ -78,6 +78,59 @@ fn settings_with_values(
         allow_outside_warp_read_only: AllowOutsideWarpReadOnly::new(Some(outside_read_only)),
         allow_inside_warp_read_write: AllowInsideWarpReadWrite::new(Some(inside_read_write)),
         allow_outside_warp_read_write: AllowOutsideWarpReadWrite::new(Some(outside_read_write)),
+    }
+}
+
+#[test]
+fn tab_rename_accepts_default_active_and_concrete_tab_targets() {
+    validate_tab_rename_target(&TargetSelector::default()).expect("default target is accepted");
+
+    validate_tab_rename_target(&TargetSelector {
+        window: Some(WindowTarget::Active),
+        tab: Some(TabTarget::Active),
+        ..TargetSelector::default()
+    })
+    .expect("active target is accepted");
+
+    validate_tab_rename_target(&TargetSelector {
+        window: Some(WindowTarget::Id {
+            id: WindowSelector("window".to_owned()),
+        }),
+        tab: Some(TabTarget::Id {
+            id: TabSelector("tab".to_owned()),
+        }),
+        ..TargetSelector::default()
+    })
+    .expect("concrete tab target is accepted");
+}
+
+#[test]
+fn tab_rename_rejects_unsupported_target_families() {
+    for target in [
+        TargetSelector {
+            pane: Some(PaneTarget::Active),
+            ..TargetSelector::default()
+        },
+        TargetSelector {
+            session: Some(SessionTarget::Active),
+            ..TargetSelector::default()
+        },
+        TargetSelector {
+            file: Some(FileTarget::Path {
+                path: "notes.txt".to_owned(),
+            }),
+            ..TargetSelector::default()
+        },
+        TargetSelector {
+            drive: Some(DriveTarget::Id {
+                object_type: DriveObjectType::Notebook,
+                id: DriveObjectSelector("notebook".to_owned()),
+            }),
+            ..TargetSelector::default()
+        },
+    ] {
+        let err = validate_tab_rename_target(&target).expect_err("unsupported target is rejected");
+        assert_eq!(err.code, ErrorCode::InvalidSelector);
     }
 }
 
@@ -394,6 +447,7 @@ fn capabilities_advertises_implemented_actions() {
             ActionKind::WindowClose,
             ActionKind::TabList,
             ActionKind::TabCreate,
+            ActionKind::TabRename,
             ActionKind::PaneList,
             ActionKind::SessionList,
             ActionKind::BlockList,
@@ -1364,6 +1418,10 @@ fn mutating_permissions_keep_app_metadata_and_underlying_data_separate() {
         PermissionCategory::MutateAppState
     );
     assert_eq!(
+        ActionKind::TabRename.metadata().permission_category,
+        PermissionCategory::MutateMetadataConfiguration
+    );
+    assert_eq!(
         ActionKind::SettingSet.metadata().permission_category,
         PermissionCategory::MutateMetadataConfiguration
     );
@@ -1406,6 +1464,20 @@ fn mutating_permissions_keep_app_metadata_and_underlying_data_separate() {
     let err = grant
         .verify_for_action(ActionKind::FileWrite)
         .expect_err("app-state mutation category does not satisfy file writes");
+    assert_eq!(err.code, ErrorCode::InsufficientPermissions);
+
+    let mut grant = CredentialGrant::new(
+        InstanceId("instance".to_owned()),
+        ActionKind::TabRename,
+        InvocationContext::InsideWarp,
+        Duration::minutes(5),
+    );
+    grant.permission_category = PermissionCategory::MutateAppState;
+    grant.authenticated_user.subject = Some("user".to_owned());
+
+    let err = grant
+        .verify_for_action(ActionKind::TabRename)
+        .expect_err("app-state mutation category does not satisfy metadata mutation");
     assert_eq!(err.code, ErrorCode::InsufficientPermissions);
 }
 
@@ -1489,6 +1561,26 @@ fn input_run_rejects_empty_command_params() {
     assert_eq!(err.code, ErrorCode::InvalidParams);
 }
 
+#[test]
+fn tab_rename_rejects_malformed_params() {
+    let err = validate_action_params(
+        &Action::with_params(
+            ActionKind::TabRename,
+            TabRenameParams {
+                title: Some("  \t  ".to_owned()),
+            },
+        )
+        .expect("tab.rename params serialize"),
+    )
+    .expect_err("blank title is rejected");
+    assert_eq!(err.code, ErrorCode::InvalidParams);
+
+    validate_action_params(
+        &Action::with_params(ActionKind::TabRename, TabRenameParams { title: None })
+            .expect("tab.rename reset params serialize"),
+    )
+    .expect("reset params are accepted");
+}
 #[test]
 fn input_run_policy_gate_fails_closed_and_allows_test_override() {
     let action = Action::with_params(
