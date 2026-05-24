@@ -1889,9 +1889,7 @@ impl AISettingsPageView {
                 if MCPServersWidget::should_show_mcp() {
                     widgets.push(Box::new(MCPServersWidget::default()));
                 }
-                if FeatureFlag::AIRules.is_enabled() {
-                    widgets.push(Box::new(AIFactWidget::default()));
-                }
+                widgets.push(Box::new(AIFactWidget::default()));
                 if cfg!(feature = "voice_input")
                     && ai_settings
                         .voice_input_enabled_internal
@@ -1957,9 +1955,7 @@ impl AISettingsPageView {
                 widgets.push(Box::new(AgentsWidget::default()));
             }
             Some(AISubpage::Knowledge) => {
-                if FeatureFlag::AIRules.is_enabled() {
-                    widgets.push(Box::new(AIFactWidget::default()));
-                }
+                widgets.push(Box::new(AIFactWidget::default()));
             }
             Some(AISubpage::ThirdPartyCLIAgents) => {
                 widgets.push(Box::new(CLIAgentWidget::default()));
@@ -5909,7 +5905,7 @@ impl SettingsWidget for AIFactWidget {
     }
 
     fn should_render(&self, _app: &AppContext) -> bool {
-        FeatureFlag::AIRules.is_enabled()
+        true
     }
 
     fn render(
