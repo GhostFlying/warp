@@ -1,4 +1,5 @@
 //! Implementations for user-facing `warpctrl` command groups.
+use local_control::discovery::InstanceRecord;
 use local_control::protocol::{
     Action, ActionKind, ActionMetadata, ControlError, ErrorCode, RequestEnvelope,
 };
@@ -10,10 +11,10 @@ use crate::agent::OutputFormat;
 use crate::local_control::output::{write_json, write_json_line};
 use crate::local_control::selectors::{instance_selector, target_selector};
 use crate::local_control::{
-    ActionCommand, AppCommand, AppearanceCommand, AuthCommand, BlockCommand, CapabilityCommand,
-    DriveCommand, FileCommand, HistoryCommand, InputCommand, InstanceCommand, KeybindingCommand,
-    PaneCommand, ProjectCommand, SessionCommand, SettingCommand, SurfaceCommand, TabCommand,
-    TabCreateArgs, TabType, TargetArgs, ThemeCommand, WindowCommand,
+    ActionCommand, AppCommand, AppearanceCommand, BlockCommand, CapabilityCommand, DriveCommand,
+    FileCommand, HistoryCommand, InputCommand, InstanceCommand, KeybindingCommand, PaneCommand,
+    ProjectCommand, SessionCommand, SettingCommand, SurfaceCommand, TabCommand, TabCreateArgs,
+    TabType, TargetArgs, ThemeCommand, WindowCommand,
 };
 
 /// Display-oriented projection of a discoverable Warp instance.
@@ -84,7 +85,9 @@ pub(super) fn run_app_command(
         AppCommand::Version(args) => {
             run_action(args, ActionKind::AppVersion, json!({}), output_format)
         }
-        AppCommand::Active(args) => run_action(args, ActionKind::AppActive, json!({}), output_format),
+        AppCommand::Active(args) => {
+            run_action(args, ActionKind::AppActive, json!({}), output_format)
+        }
         AppCommand::Focus(_) => unsupported_action("app.focus"),
     }
 }
@@ -109,7 +112,9 @@ pub(super) fn run_window_command(
         WindowCommand::List(args) => {
             run_action(args, ActionKind::WindowList, json!({}), output_format)
         }
-        WindowCommand::Inspect(args) => run_action(args, ActionKind::WindowInspect, json!({}), output_format),
+        WindowCommand::Inspect(args) => {
+            run_action(args, ActionKind::WindowInspect, json!({}), output_format)
+        }
         WindowCommand::Create(_) => unsupported_action("window.create"),
         WindowCommand::Focus(_) => unsupported_action("window.focus"),
         WindowCommand::Close(_) => unsupported_action("window.close"),
@@ -122,7 +127,9 @@ pub(super) fn run_tab_command(
 ) -> Result<(), ControlError> {
     match command {
         TabCommand::List(args) => run_action(args, ActionKind::TabList, json!({}), output_format),
-        TabCommand::Inspect(args) => run_action(args, ActionKind::TabInspect, json!({}), output_format),
+        TabCommand::Inspect(args) => {
+            run_action(args, ActionKind::TabInspect, json!({}), output_format)
+        }
         TabCommand::Create(args) => run_tab_create(args, output_format),
         TabCommand::Activate(_) => unsupported_action("tab.activate"),
         TabCommand::Move(_) => unsupported_action("tab.move"),
@@ -139,7 +146,9 @@ pub(super) fn run_pane_command(
 ) -> Result<(), ControlError> {
     match command {
         PaneCommand::List(args) => run_action(args, ActionKind::PaneList, json!({}), output_format),
-        PaneCommand::Inspect(args) => run_action(args, ActionKind::PaneInspect, json!({}), output_format),
+        PaneCommand::Inspect(args) => {
+            run_action(args, ActionKind::PaneInspect, json!({}), output_format)
+        }
         PaneCommand::Split(_) => unsupported_action("pane.split"),
         PaneCommand::Focus(_) => unsupported_action("pane.focus"),
         PaneCommand::Navigate(_) => unsupported_action("pane.navigate"),
@@ -160,7 +169,9 @@ pub(super) fn run_session_command(
         SessionCommand::List(args) => {
             run_action(args, ActionKind::SessionList, json!({}), output_format)
         }
-        SessionCommand::Inspect(args) => run_action(args, ActionKind::SessionInspect, json!({}), output_format),
+        SessionCommand::Inspect(args) => {
+            run_action(args, ActionKind::SessionInspect, json!({}), output_format)
+        }
         SessionCommand::Activate(_) => unsupported_action("session.activate"),
         SessionCommand::Previous(_) => unsupported_action("session.previous"),
         SessionCommand::Next(_) => unsupported_action("session.next"),
@@ -173,9 +184,21 @@ pub(super) fn run_block_command(
     output_format: OutputFormat,
 ) -> Result<(), ControlError> {
     match command {
-        BlockCommand::List(args) => run_action(args.target, ActionKind::BlockList, json!({ "limit": args.limit }), output_format),
-        BlockCommand::Inspect(args) => run_action(args, ActionKind::BlockInspect, json!({}), output_format),
-        BlockCommand::Output(args) => run_action(args.target, ActionKind::BlockOutput, json!({ "format": block_output_format(args.plain, args.ansi, args.json) }), output_format),
+        BlockCommand::List(args) => run_action(
+            args.target,
+            ActionKind::BlockList,
+            json!({ "limit": args.limit }),
+            output_format,
+        ),
+        BlockCommand::Inspect(args) => {
+            run_action(args, ActionKind::BlockInspect, json!({}), output_format)
+        }
+        BlockCommand::Output(args) => run_action(
+            args.target,
+            ActionKind::BlockOutput,
+            json!({ "format": block_output_format(args.plain, args.ansi, args.json) }),
+            output_format,
+        ),
     }
 }
 
@@ -209,7 +232,12 @@ pub(super) fn run_history_command(
     output_format: OutputFormat,
 ) -> Result<(), ControlError> {
     match command {
-        HistoryCommand::List(args) => run_action(args.target, ActionKind::HistoryList, json!({ "limit": args.limit }), output_format),
+        HistoryCommand::List(args) => run_action(
+            args.target,
+            ActionKind::HistoryList,
+            json!({ "limit": args.limit }),
+            output_format,
+        ),
     }
 }
 
@@ -311,8 +339,12 @@ pub(super) fn run_project_command(
     output_format: OutputFormat,
 ) -> Result<(), ControlError> {
     match command {
-        ProjectCommand::Active(args) => run_action(args, ActionKind::ProjectActive, json!({}), output_format),
-        ProjectCommand::List(args) => run_action(args, ActionKind::ProjectList, json!({}), output_format),
+        ProjectCommand::Active(args) => {
+            run_action(args, ActionKind::ProjectActive, json!({}), output_format)
+        }
+        ProjectCommand::List(args) => {
+            run_action(args, ActionKind::ProjectList, json!({}), output_format)
+        }
         ProjectCommand::Open(_) => unsupported_action("project.open"),
     }
 }
@@ -322,8 +354,18 @@ pub(super) fn run_drive_command(
     output_format: OutputFormat,
 ) -> Result<(), ControlError> {
     match command {
-        DriveCommand::List(args) => run_action(args.target, ActionKind::DriveList, json!({ "object_type": drive_object_type_name(args.object_type) }), output_format),
-        DriveCommand::Inspect(args) => run_action(args.target, ActionKind::DriveInspect, json!({ "id": args.id }), output_format),
+        DriveCommand::List(args) => run_action(
+            args.target,
+            ActionKind::DriveList,
+            json!({ "object_type": drive_object_type_name(args.object_type) }),
+            output_format,
+        ),
+        DriveCommand::Inspect(args) => run_action(
+            args.target,
+            ActionKind::DriveInspect,
+            json!({ "id": args.id }),
+            output_format,
+        ),
         DriveCommand::Open(_) => unsupported_action("drive.open"),
         DriveCommand::Notebook(_) => unsupported_action("drive.notebook.open"),
         DriveCommand::EnvVarCollection(_) => unsupported_action("drive.env-var-collection.open"),
@@ -346,16 +388,6 @@ pub(super) fn run_surface_command(command: SurfaceCommand) -> Result<(), Control
         SurfaceCommand::VerticalTabs(_) => unsupported_action("surface.vertical-tabs.toggle"),
     }
 }
-
-pub(super) fn run_auth_command(command: AuthCommand) -> Result<(), ControlError> {
-    match command {
-        AuthCommand::Status(_) => unsupported_action("auth.status"),
-        AuthCommand::Login(_) => unsupported_action("auth.login"),
-        AuthCommand::ApiKey(_) => unsupported_action("auth.api-key"),
-    }
-}
-
-
 
 fn drive_object_type_name(object_type: crate::local_control::DriveObjectType) -> &'static str {
     match object_type {
@@ -407,9 +439,7 @@ fn run_action(
     if !action.is_implemented() {
         return unsupported_action(action.as_str());
     }
-    let records = local_control::discovery::list_instances();
-    let selector = instance_selector(args.clone());
-    let instance = select_instance(&records, &selector)?;
+    let instance = select_target_instance(args.clone())?;
     let mut request = RequestEnvelope::new(Action {
         kind: action,
         params,
@@ -471,6 +501,12 @@ fn write_value(value: &impl Serialize, output_format: OutputFormat) -> Result<()
         OutputFormat::Json | OutputFormat::Pretty => write_json(value),
         OutputFormat::Ndjson | OutputFormat::Text => write_json_line(value),
     }
+}
+
+pub(super) fn select_target_instance(args: TargetArgs) -> Result<InstanceRecord, ControlError> {
+    let records = local_control::discovery::list_instances();
+    let selector = instance_selector(args);
+    select_instance(&records, &selector)
 }
 
 fn unsupported_action(action: &str) -> Result<(), ControlError> {

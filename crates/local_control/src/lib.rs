@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod client;
 pub mod discovery;
 pub mod protocol;
+pub mod scripting;
 pub mod selection;
 pub mod selectors;
 
@@ -25,15 +26,19 @@ pub use discovery::{
     discovery_dir,
 };
 pub use protocol::{
-    Action, ActionParams, ApiKeySource, AppearanceStateResult, BlockListParams,
-    BlockListResult, BlockOutputFormat, BlockOutputParams, BlockOutputResult, BlockSummary,
-    ControlError, ControlResponse, ControlResult, Direction, DriveInspectParams,
-    DriveInspectResult, DriveListParams, DriveListResult, DriveObjectSummary, ErrorCode,
-    ErrorResponseEnvelope, ExecutionContextProof, FileListResult, FileOpenParams, FileSummary,
-    HistoryEntrySummary, HistoryListParams, HistoryListResult, InputMode, InputStateResult,
-    PROTOCOL_VERSION, ProjectActiveResult, ProjectListResult, ProjectSummary, RequestEnvelope,
-    ResponseEnvelope, SettingGetParams, SettingGetResult, SettingListResult, SettingSummary,
-    TabActivationMode, TabCloseMode, TabCreateParams, TabType, ThemeListResult, ThemeSummary,
+    Action, ActionParams, ApiKeySource, AppearanceStateResult, BlockListParams, BlockListResult,
+    BlockOutputFormat, BlockOutputParams, BlockOutputResult, BlockSummary, ControlError,
+    ControlResponse, ControlResult, Direction, DriveInspectParams, DriveInspectResult,
+    DriveListParams, DriveListResult, DriveObjectSummary, ErrorCode, ErrorResponseEnvelope,
+    ExecutionContextProof, FileListResult, FileOpenParams, FileSummary, HistoryEntrySummary,
+    HistoryListParams, HistoryListResult, InputMode, InputStateResult, PROTOCOL_VERSION,
+    ProjectActiveResult, ProjectListResult, ProjectSummary, RequestEnvelope, ResponseEnvelope,
+    SettingGetParams, SettingGetResult, SettingListResult, SettingSummary, TabActivationMode,
+    TabCloseMode, TabCreateParams, TabType, ThemeListResult, ThemeSummary,
+};
+pub use scripting::{
+    ApiKeySecret, ApiKeyStatus, ApiKeyStorageRef, AuthStatusSummary, ScriptingGrant,
+    ScriptingIdentitySource, ScriptingScope,
 };
 pub use selectors::{
     BlockSelector, BlockTarget, DriveObjectId, DriveObjectTarget, DriveObjectType, FileTarget,

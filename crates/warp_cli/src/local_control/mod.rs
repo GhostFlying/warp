@@ -1,4 +1,5 @@
 //! Command-line interface for controlling a running local Warp app.
+mod auth_commands;
 mod commands;
 mod completions;
 mod output;
@@ -8,15 +9,16 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use crate::agent::OutputFormat;
+use auth_commands::{AuthCommand, run_auth_command};
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 use clap_complete::aot::Shell;
 
 use commands::{
-    run_action_command, run_app_command, run_appearance_command, run_auth_command,
-    run_block_command, run_capability_command, run_drive_command, run_file_command,
-    run_history_command, run_input_command, run_instance_command, run_keybinding_command,
-    run_pane_command, run_project_command, run_session_command, run_setting_command,
-    run_surface_command, run_tab_command, run_theme_command, run_window_command,
+    run_action_command, run_app_command, run_appearance_command, run_block_command,
+    run_capability_command, run_drive_command, run_file_command, run_history_command,
+    run_input_command, run_instance_command, run_keybinding_command, run_pane_command,
+    run_project_command, run_session_command, run_setting_command, run_surface_command,
+    run_tab_command, run_theme_command, run_window_command,
 };
 use completions::generate_completions_to_stdout;
 use output::write_control_error;
@@ -444,18 +446,6 @@ pub enum SurfaceCommand {
     /// Toggle the vertical tabs panel.
     #[command(name = "vertical-tabs", subcommand)]
     VerticalTabs(SurfaceToggleCommand),
-}
-
-/// Commands that manage authenticated scripting.
-#[derive(Debug, Clone, Subcommand)]
-pub enum AuthCommand {
-    /// Print local-control and authenticated scripting status.
-    Status(TargetArgs),
-    /// Focus the selected app's sign-in UI.
-    Login(TargetArgs),
-    /// Manage external scripting API keys.
-    #[command(name = "api-key", subcommand)]
-    ApiKey(AuthApiKeyCommand),
 }
 
 /// Common flags for selecting which running Warp instance and target receives a command.
@@ -1008,32 +998,6 @@ pub enum SurfaceToggleCommand {
     Toggle(TargetArgs),
 }
 
-#[derive(Debug, Clone, Subcommand)]
-pub enum AuthApiKeyCommand {
-    /// Store or reference an external scripting API key.
-    Set(AuthApiKeySetArgs),
-    /// Print API-key identity status without revealing the key.
-    Status(TargetArgs),
-    /// Delete or revoke the local API-key reference.
-    Revoke(TargetArgs),
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct AuthApiKeySetArgs {
-    /// Environment variable containing the key.
-    #[arg(
-        long = "key-env",
-        conflicts_with = "key_stdin",
-        required_unless_present = "key_stdin"
-    )]
-    pub key_env: Option<String>,
-    /// Read the key from stdin.
-    #[arg(long = "key-stdin", conflicts_with = "key_env")]
-    pub key_stdin: bool,
-    #[command(flatten)]
-    pub target: TargetArgs,
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, ValueEnum)]
 pub enum HorizontalDirection {
     #[value(name = "left")]
@@ -1108,7 +1072,7 @@ fn run_inner(args: ControlArgs) -> Result<(), local_control::protocol::ControlEr
         ControlCommand::Project(command) => run_project_command(command, output_format),
         ControlCommand::Drive(command) => run_drive_command(command, output_format),
         ControlCommand::Surface(command) => run_surface_command(command),
-        ControlCommand::Auth(command) => run_auth_command(command),
+        ControlCommand::Auth(command) => run_auth_command(command, output_format),
         ControlCommand::Completions { shell } => generate_completions_to_stdout(shell),
     }
 }
