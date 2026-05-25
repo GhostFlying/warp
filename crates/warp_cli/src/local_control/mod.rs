@@ -321,6 +321,27 @@ pub enum ThemeCommand {
     List(TargetArgs),
     /// Set the current theme.
     Set(ThemeSetArgs),
+    /// Set whether Warp follows the system theme.
+    #[command(subcommand)]
+    System(ThemeSystemCommand),
+    /// Set the light theme used when following the system theme.
+    #[command(subcommand)]
+    Light(ThemeVariantCommand),
+    /// Set the dark theme used when following the system theme.
+    #[command(subcommand)]
+    Dark(ThemeVariantCommand),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ThemeSystemCommand {
+    /// Set whether Warp follows the system theme.
+    Set(ThemeSystemSetArgs),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ThemeVariantCommand {
+    /// Set the selected theme.
+    Set(ThemeSetArgs),
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -616,6 +637,14 @@ pub struct ThemeSetArgs {
     pub target: TargetArgs,
 
     pub name: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ThemeSystemSetArgs {
+    #[command(flatten)]
+    pub target: TargetArgs,
+    #[arg(action = clap::ArgAction::Set)]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Args)]

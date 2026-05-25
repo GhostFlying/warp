@@ -1,3 +1,4 @@
+use crate::WindowSettings;
 use ::local_control::auth::CredentialGrant;
 use ::local_control::protocol::ActionKind;
 use ::local_control::protocol::{
@@ -13,18 +14,20 @@ use warp_core::features::FeatureFlag;
 use warpui::{App, SingletonEntity};
 
 use super::{
-    action_metadata_for_name, appearance_state_result, capabilities, ensure_feature_enabled,
+    action_metadata_for_name, appearance_font_size_result, appearance_set_result,
+    appearance_state_result, appearance_zoom_result, capabilities, ensure_feature_enabled,
     ensure_scripting_grant_for_settings, ensure_settings_allow_action,
     outside_warp_action_enabled_for_settings, rejected_setting_key, require_active_window_id,
-    setting_get_result, setting_list_result, theme_list_result, validate_action_params,
-    validate_app_focus_target_test, validate_tab_create_target, validate_window_create_target_test,
-    LocalControlBridge,
+    setting_get_result, setting_list_result, setting_set_result, setting_toggle_result,
+    theme_list_result, theme_set_result, validate_action_params, validate_app_focus_target_test,
+    validate_tab_create_target, validate_window_create_target_test, LocalControlBridge,
 };
 use crate::settings::{
     AllowOutsideWarpAppStateMutations, AllowOutsideWarpAuthenticatedUserActions,
     AllowOutsideWarpControl, AllowOutsideWarpMetadataConfigurationMutations,
     AllowOutsideWarpMetadataReads, AllowOutsideWarpUnderlyingDataMutations,
-    AllowOutsideWarpUnderlyingDataReads, LocalControlSettings,
+    AllowOutsideWarpUnderlyingDataReads, FontSettings, InputSettings, LocalControlSettings,
+    ThemeSettings,
 };
 use crate::test_util::settings::initialize_settings_for_tests;
 use ::local_control::scripting::{ScriptingGrant, ScriptingIdentitySource, ScriptingScope};
@@ -667,6 +670,159 @@ fn settings_and_appearance_handlers_return_allowlisted_metadata() {
 }
 
 #[test]
+fn settings_and_appearance_mutations_update_persisted_settings() {
+    let _flag = FeatureFlag::WarpControlCli.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let bridge = app.add_model(LocalControlBridge::new);
+
+        bridge.update(&mut app, |_, ctx| {
+            theme_set_result(
+                ::local_control::ThemeSetParams {
+                    name: "Light".to_owned(),
+                },
+                ctx,
+            )
+            .expect("theme.set persists");
+            assert_eq!(
+                setting_get_result("appearance.themes.theme", ctx)
+                    .expect("theme setting is readable")
+                    .setting
+                    .value,
+                serde_json::json!("Light")
+            );
+            assert!(!*ThemeSettings::as_ref(ctx).use_system_theme.value());
+
+            appearance_set_result(
+                ::local_control::AppearanceSetParams {
+                    theme: None,
+                    follow_system_theme: Some(true),
+                    light_theme: Some("Light".to_owned()),
+                    dark_theme: Some("Dark".to_owned()),
+                },
+                ctx,
+            )
+            .expect("appearance.set persists system themes");
+            assert!(*ThemeSettings::as_ref(ctx).use_system_theme.value());
+            assert_eq!(
+                setting_get_result("appearance.themes.light_theme", ctx)
+                    .expect("light theme setting is readable")
+                    .setting
+                    .value,
+                serde_json::json!("Light")
+            );
+            assert_eq!(
+                setting_get_result("appearance.themes.dark_theme", ctx)
+                    .expect("dark theme setting is readable")
+                    .setting
+                    .value,
+                serde_json::json!("Dark")
+            );
+
+            appearance_font_size_result(
+                ::local_control::AppearanceFontSizeParams {
+                    adjustment: ::local_control::SizeAdjustment::Set,
+                    value: Some(14),
+                },
+                ctx,
+            )
+            .expect("font size set persists");
+            assert_eq!(*FontSettings::as_ref(ctx).monospace_font_size.value(), 14.0);
+
+            appearance_zoom_result(
+                ::local_control::AppearanceZoomParams {
+                    adjustment: ::local_control::SizeAdjustment::Set,
+                    value: Some(125),
+                },
+                ctx,
+            )
+            .expect("zoom set persists");
+            assert_eq!(*WindowSettings::as_ref(ctx).zoom_level.value(), 125);
+
+            setting_set_result(
+                ::local_control::SettingSetParams {
+                    key: "terminal.input.syntax_highlighting".to_owned(),
+                    value: serde_json::json!(false),
+                },
+                ctx,
+            )
+            .expect("setting.set persists bool value");
+            assert!(!*InputSettings::as_ref(ctx).syntax_highlighting.value());
+
+            setting_toggle_result(
+                ::local_control::SettingToggleParams {
+                    key: "terminal.input.syntax_highlighting".to_owned(),
+                },
+                ctx,
+            )
+            .expect("setting.toggle persists bool value");
+            assert!(*InputSettings::as_ref(ctx).syntax_highlighting.value());
+        });
+    });
+}
+
+#[test]
+fn settings_and_appearance_mutations_validate_values() {
+    let _flag = FeatureFlag::WarpControlCli.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        let bridge = app.add_model(LocalControlBridge::new);
+
+        bridge.update(&mut app, |_, ctx| {
+            let err = appearance_font_size_result(
+                ::local_control::AppearanceFontSizeParams {
+                    adjustment: ::local_control::SizeAdjustment::Set,
+                    value: Some(4),
+                },
+                ctx,
+            )
+            .expect_err("too-small font size is rejected");
+            assert_eq!(err.code, ErrorCode::InvalidParams);
+
+            let err = appearance_font_size_result(
+                ::local_control::AppearanceFontSizeParams {
+                    adjustment: ::local_control::SizeAdjustment::Increase,
+                    value: Some(14),
+                },
+                ctx,
+            )
+            .expect_err("font-size value is rejected for increase");
+            assert_eq!(err.code, ErrorCode::InvalidParams);
+
+            let err = appearance_zoom_result(
+                ::local_control::AppearanceZoomParams {
+                    adjustment: ::local_control::SizeAdjustment::Set,
+                    value: Some(115),
+                },
+                ctx,
+            )
+            .expect_err("unsupported zoom level is rejected");
+            assert_eq!(err.code, ErrorCode::InvalidParams);
+
+            let err = setting_set_result(
+                ::local_control::SettingSetParams {
+                    key: "terminal.input.syntax_highlighting".to_owned(),
+                    value: serde_json::json!("false"),
+                },
+                ctx,
+            )
+            .expect_err("wrong setting value type is rejected");
+            assert_eq!(err.code, ErrorCode::InvalidParams);
+
+            let err = setting_toggle_result(
+                ::local_control::SettingToggleParams {
+                    key: "appearance.text.font_name".to_owned(),
+                },
+                ctx,
+            )
+            .expect_err("non-bool setting cannot be toggled");
+            assert_eq!(err.code, ErrorCode::InvalidParams);
+        });
+    });
+}
+#[test]
 fn setting_get_rejects_unknown_and_private_settings() {
     let _flag = FeatureFlag::WarpControlCli.override_enabled(true);
 
@@ -683,6 +839,14 @@ fn setting_get_rejects_unknown_and_private_settings() {
                 .expect_err("private settings are rejected");
             assert_eq!(err.code, ErrorCode::NotAllowlisted);
             assert!(err.message.contains("private or sensitive"));
+
+            let err = setting_get_result("appearance.themes.selected_system_themes", ctx)
+                .expect_err("derived compound settings are rejected");
+            assert_eq!(err.code, ErrorCode::NotAllowlisted);
+
+            let err = setting_get_result("debug.recording_mode", ctx)
+                .expect_err("debug settings are rejected");
+            assert_eq!(err.code, ErrorCode::NotAllowlisted);
         });
     });
 }

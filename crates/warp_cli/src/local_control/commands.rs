@@ -23,8 +23,8 @@ use crate::local_control::selectors::instance_selector;
 use crate::local_control::{
     ActionCommand, AppCommand, AppSurfaceArgs, AppearanceCommand, BlockCommand, DriveCommand,
     FileCommand, HistoryCommand, InputCommand, InstanceCommand, PaneCommand, ProjectCommand,
-    SessionCommand, SettingCommand, TabCommand, TargetArgs, ThemeCommand, WindowCommand,
-    parse_json_value_or_string,
+    SessionCommand, SettingCommand, TabCommand, TargetArgs, ThemeCommand, ThemeSystemCommand,
+    ThemeVariantCommand, WindowCommand, parse_json_value_or_string,
 };
 
 /// Display-oriented projection of a discoverable Warp instance.
@@ -453,6 +453,39 @@ pub(super) fn run_theme_command(
             args.target,
             ActionKind::ThemeSet,
             ThemeSetParams { name: args.name },
+            output_format,
+        ),
+        ThemeCommand::System(ThemeSystemCommand::Set(args)) => run_action_with_params(
+            args.target,
+            ActionKind::AppearanceSet,
+            AppearanceSetParams {
+                theme: None,
+                follow_system_theme: Some(args.enabled),
+                light_theme: None,
+                dark_theme: None,
+            },
+            output_format,
+        ),
+        ThemeCommand::Light(ThemeVariantCommand::Set(args)) => run_action_with_params(
+            args.target,
+            ActionKind::AppearanceSet,
+            AppearanceSetParams {
+                theme: None,
+                follow_system_theme: None,
+                light_theme: Some(args.name),
+                dark_theme: None,
+            },
+            output_format,
+        ),
+        ThemeCommand::Dark(ThemeVariantCommand::Set(args)) => run_action_with_params(
+            args.target,
+            ActionKind::AppearanceSet,
+            AppearanceSetParams {
+                theme: None,
+                follow_system_theme: None,
+                light_theme: None,
+                dark_theme: Some(args.name),
+            },
             output_format,
         ),
     }

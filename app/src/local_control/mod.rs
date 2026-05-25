@@ -426,8 +426,9 @@ pub(crate) use handlers::layout::{
 pub(crate) use handlers::metadata::action_metadata_for_name;
 #[cfg(test)]
 pub(crate) use handlers::settings_surfaces::{
-    appearance_state_result, rejected_setting_key, setting_get_result, setting_list_result,
-    theme_list_result,
+    appearance_font_size_result, appearance_set_result, appearance_state_result,
+    appearance_zoom_result, rejected_setting_key, setting_get_result, setting_list_result,
+    setting_set_result, setting_toggle_result, theme_list_result, theme_set_result,
 };
 #[cfg(test)]
 pub(crate) use permissions::{

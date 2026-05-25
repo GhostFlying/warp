@@ -81,6 +81,47 @@ fn parses_settings_and_appearance_metadata_commands() {
 }
 
 #[test]
+fn parses_theme_mutation_commands() {
+    let args = ControlArgs::try_parse_from([
+        "warpctrl",
+        "theme",
+        "set",
+        "--instance",
+        "inst_123",
+        "Light",
+    ])
+    .expect("theme set parses");
+    let ControlCommand::Theme(ThemeCommand::Set(setting)) = args.command else {
+        panic!("expected theme set command");
+    };
+    assert_eq!(setting.target.instance.as_deref(), Some("inst_123"));
+    assert_eq!(setting.name, "Light");
+
+    let args = ControlArgs::try_parse_from(["warpctrl", "theme", "system", "set", "true"])
+        .expect("theme system set parses");
+    let ControlCommand::Theme(ThemeCommand::System(ThemeSystemCommand::Set(system))) = args.command
+    else {
+        panic!("expected theme system set command");
+    };
+    assert!(system.enabled);
+
+    let args = ControlArgs::try_parse_from(["warpctrl", "theme", "light", "set", "Light"])
+        .expect("theme light set parses");
+    let ControlCommand::Theme(ThemeCommand::Light(ThemeVariantCommand::Set(light))) = args.command
+    else {
+        panic!("expected theme light set command");
+    };
+    assert_eq!(light.name, "Light");
+
+    let args = ControlArgs::try_parse_from(["warpctrl", "theme", "dark", "set", "Dark"])
+        .expect("theme dark set parses");
+    let ControlCommand::Theme(ThemeCommand::Dark(ThemeVariantCommand::Set(dark))) = args.command
+    else {
+        panic!("expected theme dark set command");
+    };
+    assert_eq!(dark.name, "Dark");
+}
+#[test]
 fn parses_first_slice_app_smoke_metadata_commands() {
     assert!(ControlArgs::try_parse_from(["warpctrl", "app", "ping"]).is_ok());
     assert!(ControlArgs::try_parse_from(["warpctrl", "app", "version"]).is_ok());

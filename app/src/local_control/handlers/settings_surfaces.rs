@@ -53,10 +53,46 @@ const PRIVATE_OR_SENSITIVE_SETTING_KEYS: &[&str] = &[
     "terminal.input.workflows_box_expanded",
 ];
 
+const DEBUG_SETTING_KEYS: &[&str] = &[
+    "debug.are_in_band_generators_for_all_sessions_enabled",
+    "debug.force_disable_in_band_generators",
+    "debug.is_shell_debug_mode_enabled",
+    "debug.recording_mode",
+    "debug.show_memory_stats",
+];
+
+const DERIVED_OR_COMPOUND_SETTING_KEYS: &[&str] = &[
+    "appearance.themes.active_theme",
+    "appearance.themes.selected_system_themes",
+    "terminal.input.input_box_type",
+];
+
 pub(crate) fn theme_list(
     ctx: &mut ModelContext<LocalControlBridge>,
 ) -> Result<serde_json::Value, ControlError> {
     to_control_data(theme_list_result(ctx)?)
+}
+
+fn validate_size_adjustment_value(
+    action: ActionKind,
+    adjustment: SizeAdjustment,
+    value: Option<u32>,
+) -> Result<(), ControlError> {
+    match (adjustment, value) {
+        (SizeAdjustment::Set, Some(_)) => Ok(()),
+        (SizeAdjustment::Set, None) => Err(ControlError::new(
+            ErrorCode::InvalidParams,
+            format!("{} set requires a value", action.as_str()),
+        )),
+        (_, Some(_)) => Err(ControlError::new(
+            ErrorCode::InvalidParams,
+            format!(
+                "{} value may only be supplied with the set adjustment",
+                action.as_str()
+            ),
+        )),
+        (_, None) => Ok(()),
+    }
 }
 
 pub(crate) fn appearance_get(
@@ -260,17 +296,22 @@ pub(crate) fn appearance_font_size_result(
     ctx: &mut ModelContext<LocalControlBridge>,
 ) -> Result<AppearanceMutationResult, ControlError> {
     let current = *FontSettings::as_ref(ctx).monospace_font_size.value();
+    validate_size_adjustment_value(
+        ActionKind::AppearanceFontSize,
+        params.adjustment,
+        params.value,
+    )?;
     let next = match params.adjustment {
         SizeAdjustment::Increase => (current + 1.0).clamp(5.0, 25.0),
         SizeAdjustment::Decrease => (current - 1.0).clamp(5.0, 25.0),
         SizeAdjustment::Reset => crate::settings::MonospaceFontSize::default_value(),
         SizeAdjustment::Set => {
-            let value = params.value.ok_or_else(|| {
-                ControlError::new(
+            let Some(value) = params.value else {
+                return Err(ControlError::new(
                     ErrorCode::InvalidParams,
                     "appearance.font_size set requires a value",
-                )
-            })?;
+                ));
+            };
             valid_font_size(value)?
         }
     };
@@ -288,17 +329,18 @@ pub(crate) fn appearance_zoom_result(
     ctx: &mut ModelContext<LocalControlBridge>,
 ) -> Result<AppearanceMutationResult, ControlError> {
     let current = *WindowSettings::as_ref(ctx).zoom_level.value();
+    validate_size_adjustment_value(ActionKind::AppearanceZoom, params.adjustment, params.value)?;
     let next = match params.adjustment {
         SizeAdjustment::Increase => adjacent_zoom_level(current, true),
         SizeAdjustment::Decrease => adjacent_zoom_level(current, false),
         SizeAdjustment::Reset => ZoomLevel::default_value(),
         SizeAdjustment::Set => {
-            let value = params.value.ok_or_else(|| {
-                ControlError::new(
+            let Some(value) = params.value else {
+                return Err(ControlError::new(
                     ErrorCode::InvalidParams,
                     "appearance.zoom set requires a value",
-                )
-            })?;
+                ));
+            };
             valid_zoom_level(value)?
         }
     };
@@ -572,6 +614,20 @@ pub(crate) fn rejected_setting_key(key: &str) -> ControlError {
         return ControlError::new(
             ErrorCode::NotAllowlisted,
             format!("{key} is private or sensitive and is not available through local control"),
+        );
+    }
+    if DEBUG_SETTING_KEYS.contains(&key) {
+        return ControlError::new(
+            ErrorCode::NotAllowlisted,
+            format!("{key} is debug-only and is not available through local control"),
+        );
+    }
+    if DERIVED_OR_COMPOUND_SETTING_KEYS.contains(&key) {
+        return ControlError::new(
+            ErrorCode::NotAllowlisted,
+            format!(
+                "{key} is derived or compound state and is not available through local control"
+            ),
         );
     }
     ControlError::new(
