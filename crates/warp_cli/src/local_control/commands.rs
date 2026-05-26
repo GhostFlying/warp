@@ -1,7 +1,7 @@
 //! Implementations for user-facing `warpctrl` command groups.
 use local_control::protocol::{
-    Action, ActionKind, ActionMetadata, ActionNameParams, ControlError, EmptyParams, ErrorCode,
-    RequestEnvelope,
+    Action, ActionKind, ActionMetadata, ActionNameParams, ActionParams, ControlError, EmptyParams,
+    ErrorCode, RequestEnvelope,
 };
 use local_control::selection::select_instance;
 use serde::Serialize;
@@ -12,7 +12,8 @@ use crate::local_control::selectors::{instance_selector, target_selector};
 use crate::local_control::{
     ActionCommand, AppCommand, AppearanceCommand, BlockCommand, CapabilityCommand, DriveCommand,
     FileCommand, HistoryCommand, InputCommand, InstanceCommand, KeybindingCommand, PaneCommand,
-    SessionCommand, SettingCommand, TabCommand, TargetArgs, ThemeCommand, WindowCommand,
+    SessionCommand, SettingCommand, TabColorCommand, TabCommand, TargetArgs, ThemeCommand,
+    WindowCommand,
 };
 
 /// Display-oriented projection of a discoverable Warp instance.
@@ -170,6 +171,24 @@ pub(super) fn run_tab_command(
             run_action_with_params(args, ActionKind::TabInspect, EmptyParams {}, output_format)
         }
         TabCommand::Create(args) => run_action(args, ActionKind::TabCreate, output_format),
+        TabCommand::Rename(args) => run_action_with_params(
+            args.target,
+            ActionKind::TabRename,
+            ActionParams::Rename { title: args.title },
+            output_format,
+        ),
+        TabCommand::ResetName(args) => run_action(args, ActionKind::TabResetName, output_format),
+        TabCommand::Color(command) => match command {
+            TabColorCommand::Set(args) => run_action_with_params(
+                args.target,
+                ActionKind::TabColorSet,
+                ActionParams::ColorValue { color: args.color },
+                output_format,
+            ),
+            TabColorCommand::Clear(args) => {
+                run_action(args, ActionKind::TabColorClear, output_format)
+            }
+        },
     }
 }
 
@@ -184,6 +203,13 @@ pub(super) fn run_pane_command(
         PaneCommand::Inspect(args) => {
             run_action_with_params(args, ActionKind::PaneInspect, EmptyParams {}, output_format)
         }
+        PaneCommand::Rename(args) => run_action_with_params(
+            args.target,
+            ActionKind::PaneRename,
+            ActionParams::Rename { title: args.title },
+            output_format,
+        ),
+        PaneCommand::ResetName(args) => run_action(args, ActionKind::PaneResetName, output_format),
     }
 }
 
@@ -259,6 +285,38 @@ pub(super) fn run_theme_command(
         ThemeCommand::Get(args) => {
             run_action_with_params(args, ActionKind::ThemeGet, EmptyParams {}, output_format)
         }
+        ThemeCommand::Set(args) => run_action_with_params(
+            args.target,
+            ActionKind::ThemeSet,
+            ActionParams::ThemeName {
+                theme_name: args.name,
+            },
+            output_format,
+        ),
+        ThemeCommand::SystemSet(args) => run_action_with_params(
+            args.target,
+            ActionKind::ThemeSystemSet,
+            ActionParams::BooleanValue {
+                value: args.enabled,
+            },
+            output_format,
+        ),
+        ThemeCommand::LightSet(args) => run_action_with_params(
+            args.target,
+            ActionKind::ThemeLightSet,
+            ActionParams::ThemeName {
+                theme_name: args.name,
+            },
+            output_format,
+        ),
+        ThemeCommand::DarkSet(args) => run_action_with_params(
+            args.target,
+            ActionKind::ThemeDarkSet,
+            ActionParams::ThemeName {
+                theme_name: args.name,
+            },
+            output_format,
+        ),
     }
 }
 
@@ -273,6 +331,24 @@ pub(super) fn run_appearance_command(
             EmptyParams {},
             output_format,
         ),
+        AppearanceCommand::FontSizeIncrease(args) => {
+            run_action(args, ActionKind::AppearanceFontSizeIncrease, output_format)
+        }
+        AppearanceCommand::FontSizeDecrease(args) => {
+            run_action(args, ActionKind::AppearanceFontSizeDecrease, output_format)
+        }
+        AppearanceCommand::FontSizeReset(args) => {
+            run_action(args, ActionKind::AppearanceFontSizeReset, output_format)
+        }
+        AppearanceCommand::ZoomIncrease(args) => {
+            run_action(args, ActionKind::AppearanceZoomIncrease, output_format)
+        }
+        AppearanceCommand::ZoomDecrease(args) => {
+            run_action(args, ActionKind::AppearanceZoomDecrease, output_format)
+        }
+        AppearanceCommand::ZoomReset(args) => {
+            run_action(args, ActionKind::AppearanceZoomReset, output_format)
+        }
     }
 }
 
@@ -304,6 +380,21 @@ pub(super) fn run_setting_command(
             args.target,
             ActionKind::SettingGet,
             local_control::SettingGetParams { key: args.key },
+            output_format,
+        ),
+        SettingCommand::Set(args) => run_action_with_params(
+            args.target,
+            ActionKind::SettingSet,
+            ActionParams::KeyValue {
+                key: args.key,
+                value: parse_json_value_or_string(args.value),
+            },
+            output_format,
+        ),
+        SettingCommand::Toggle(args) => run_action_with_params(
+            args.target,
+            ActionKind::SettingToggle,
+            ActionParams::Key { key: args.key },
             output_format,
         ),
     }
@@ -399,4 +490,8 @@ fn run_action_with_params<T: Serialize>(
         OutputFormat::Ndjson => write_json_line(&data),
         OutputFormat::Pretty | OutputFormat::Text => write_json(&data),
     }
+}
+
+fn parse_json_value_or_string(value: String) -> serde_json::Value {
+    serde_json::from_str(&value).unwrap_or(serde_json::Value::String(value))
 }

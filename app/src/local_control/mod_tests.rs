@@ -19,7 +19,6 @@ fn settings_with_mode(mode: LocalControlMode) -> LocalControlSettings {
         local_control_mode: LocalControlModeSetting::new(Some(mode)),
     }
 }
-
 #[test]
 fn tab_create_accepts_default_active_and_window_targets() {
     validate_tab_create_target(&TargetSelector::default()).expect("default target is accepted");
@@ -99,7 +98,7 @@ fn tab_create_rejects_unsupported_selector_forms() {
 }
 
 #[test]
-fn capabilities_advertises_implemented_readonly_and_app_state_actions() {
+fn capabilities_advertises_implemented_readonly_app_state_and_metadata_config_actions() {
     let actions = capabilities();
 
     for action in [
@@ -138,6 +137,10 @@ fn capabilities_advertises_implemented_readonly_and_app_state_actions() {
         ActionKind::TabActivate,
         ActionKind::TabMove,
         ActionKind::TabClose,
+        ActionKind::TabRename,
+        ActionKind::TabResetName,
+        ActionKind::TabColorSet,
+        ActionKind::TabColorClear,
         ActionKind::PaneSplit,
         ActionKind::PaneFocus,
         ActionKind::PaneNavigate,
@@ -145,6 +148,8 @@ fn capabilities_advertises_implemented_readonly_and_app_state_actions() {
         ActionKind::PaneMaximize,
         ActionKind::PaneUnmaximize,
         ActionKind::PaneClose,
+        ActionKind::PaneRename,
+        ActionKind::PaneResetName,
         ActionKind::SessionActivate,
         ActionKind::SessionPrevious,
         ActionKind::SessionNext,
@@ -153,6 +158,18 @@ fn capabilities_advertises_implemented_readonly_and_app_state_actions() {
         ActionKind::InputReplace,
         ActionKind::InputClear,
         ActionKind::InputModeSet,
+        ActionKind::ThemeSet,
+        ActionKind::ThemeSystemSet,
+        ActionKind::ThemeLightSet,
+        ActionKind::ThemeDarkSet,
+        ActionKind::AppearanceFontSizeIncrease,
+        ActionKind::AppearanceFontSizeDecrease,
+        ActionKind::AppearanceFontSizeReset,
+        ActionKind::AppearanceZoomIncrease,
+        ActionKind::AppearanceZoomDecrease,
+        ActionKind::AppearanceZoomReset,
+        ActionKind::SettingSet,
+        ActionKind::SettingToggle,
         ActionKind::SurfaceSettingsOpen,
         ActionKind::SurfaceCommandPaletteOpen,
         ActionKind::SurfaceCommandSearchOpen,

@@ -355,7 +355,7 @@ define_action_catalog! {
         TabClose => { name: "tab.close", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: TabClose, result: Acknowledgement },
         TabRename => { name: "tab.rename", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: Rename, result: Acknowledgement },
         TabResetName => { name: "tab.reset_name", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: None, result: Acknowledgement },
-        TabColorSet => { name: "tab.color.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: ColorValue, result: Acknowledgement },
+        TabColorSet => { name: "tab.color.set", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: ColorValue, result: Acknowledgement },
         TabColorClear => { name: "tab.color.clear", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: None, result: Acknowledgement },
     }
 
@@ -404,27 +404,27 @@ define_action_catalog! {
     theme {
         ThemeList => { name: "theme.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Appearance, params: None, result: ThemeList },
         ThemeGet => { name: "theme.get", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Appearance, params: None, result: ThemeState },
-        ThemeSet => { name: "theme.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: ThemeName, result: Acknowledgement },
-        ThemeSystemSet => { name: "theme.system.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: BooleanValue, result: Acknowledgement },
-        ThemeLightSet => { name: "theme.light.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: ThemeName, result: Acknowledgement },
-        ThemeDarkSet => { name: "theme.dark.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: ThemeName, result: Acknowledgement },
+        ThemeSet => { name: "theme.set", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: ThemeName, result: Acknowledgement },
+        ThemeSystemSet => { name: "theme.system.set", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: BooleanValue, result: Acknowledgement },
+        ThemeLightSet => { name: "theme.light.set", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: ThemeName, result: Acknowledgement },
+        ThemeDarkSet => { name: "theme.dark.set", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: ThemeName, result: Acknowledgement },
     }
 
     appearance {
         AppearanceGet => { name: "appearance.get", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Appearance, params: None, result: AppearanceState },
-        AppearanceFontSizeIncrease => { name: "appearance.font_size.increase", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
-        AppearanceFontSizeDecrease => { name: "appearance.font_size.decrease", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
-        AppearanceFontSizeReset => { name: "appearance.font_size.reset", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
-        AppearanceZoomIncrease => { name: "appearance.zoom.increase", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
-        AppearanceZoomDecrease => { name: "appearance.zoom.decrease", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
-        AppearanceZoomReset => { name: "appearance.zoom.reset", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
+        AppearanceFontSizeIncrease => { name: "appearance.font_size.increase", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
+        AppearanceFontSizeDecrease => { name: "appearance.font_size.decrease", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
+        AppearanceFontSizeReset => { name: "appearance.font_size.reset", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
+        AppearanceZoomIncrease => { name: "appearance.zoom.increase", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
+        AppearanceZoomDecrease => { name: "appearance.zoom.decrease", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
+        AppearanceZoomReset => { name: "appearance.zoom.reset", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Appearance, params: None, result: Acknowledgement },
     }
 
     setting {
-        SettingList => { name: "setting.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Settings, params: Namespace, result: SettingList },
+        SettingList => { name: "setting.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Settings, params: None, result: SettingList },
         SettingGet => { name: "setting.get", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Settings, params: Key, result: SettingValue },
-        SettingSet => { name: "setting.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Settings, params: KeyValue, result: Acknowledgement },
-        SettingToggle => { name: "setting.toggle", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Settings, params: Key, result: Acknowledgement },
+        SettingSet => { name: "setting.set", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Settings, params: KeyValue, result: Acknowledgement },
+        SettingToggle => { name: "setting.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Settings, params: Key, result: Acknowledgement },
     }
 
     keybinding {
