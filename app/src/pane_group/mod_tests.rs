@@ -40,6 +40,7 @@ use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 use crate::ai::blocklist::history_model::CloudConversationData;
 use crate::ai::blocklist::orchestration_event_streamer::OrchestrationEventStreamer;
 use crate::ai::blocklist::orchestration_events::OrchestrationEventService;
+use crate::ai::blocklist::orchestration_topology::descendant_conversation_ids_in_spawn_order;
 use crate::ai::blocklist::task_status_sync_model::TaskStatusSyncModel;
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::document::ai_document_model::AIDocumentModel;
@@ -870,6 +871,17 @@ fn test_restored_remote_hidden_child_pane_enters_existing_ambient_session() {
             let parent_conversation_id = start_parent_conversation(panes, parent_pane_id, ctx);
             let task_id = new_ambient_agent_task_id();
 
+            // Fix B: inject mock cloud task data so the task-backed hydration
+            // path resolves to the live ambient session via
+            // `resolve_open_action` -> `OpenOrAttachAmbientAgentConversation`.
+            // The default mock task has `is_sandbox_running = false` so it
+            // resolves to the fallback path; we leave it at the default to
+            // ensure the pre-Fix-B "attach to existing ambient session +
+            // tombstone" behavior is preserved.
+            AgentConversationsModel::handle(ctx).update(ctx, |model, _| {
+                model.insert_task_for_test(ambient_agent_task_for_current_user(task_id));
+            });
+
             let mut child_conversation = AIConversation::new(false, false);
             child_conversation.set_parent_conversation_id(parent_conversation_id);
             child_conversation.set_task_id(task_id);
@@ -894,6 +906,19 @@ fn test_restored_remote_hidden_child_pane_enters_existing_ambient_session() {
             );
             assert_eq!(active_conversation_id, Some(child_conversation_id));
 
+            // Fix B: the placeholder's local AIConversationId must remain the
+            // canonical key in `child_agent_panes`. Any in-place hydration
+            // (live attach, transcript merge, or fallback) must preserve this
+            // key so the orchestration pill bar and topology indexes can
+            // still find the pane.
+            assert!(
+                panes
+                    .child_agent_panes
+                    .contains_key(&child_conversation_id),
+                "placeholder AIConversationId must stay the child_agent_panes key after Fix B \
+                 hydration",
+            );
+
             let terminal_view = panes
                 .terminal_view_from_pane_id(child_pane_id, ctx)
                 .expect("remote child pane should have a terminal view");
@@ -903,6 +928,273 @@ fn test_restored_remote_hidden_child_pane_enters_existing_ambient_session() {
                     .is_initial_conversation_details_panel_auto_open_suppressed_for_test(),
                 "remote child panes opened from the parent orchestration UI should not auto-open \
                  details when the ambient session becomes ready"
+            );
+        });
+    });
+}
+
+/// Fix B: when task data for a restored remote child is NOT yet cached at
+/// `create_hidden_child_agent_pane` time, the placeholder must still be
+/// registered in `child_agent_panes` keyed by its local AIConversationId,
+/// attached to the live ambient session (preserving today's behavior so
+/// streaming runs continue to attach), AND deferred via
+/// `pending_remote_child_hydrations` so the subscription handler can retry
+/// when `TasksUpdated` / `ConversationsLoaded` fires. The pane group must
+/// never produce a worse state than the pre-Fix-B fallback.
+#[test]
+fn test_restored_remote_hidden_child_pane_fallback_when_task_data_unavailable() {
+    let _orchestration_v2 = FeatureFlag::OrchestrationV2.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let pane_group = mock_pane_group(&mut app, Default::default());
+
+        pane_group.update(&mut app, |panes, ctx| {
+            let parent_pane_id = get_newly_created_pane_id(panes, &[]);
+            let parent_conversation_id = start_parent_conversation(panes, parent_pane_id, ctx);
+            let task_id = new_ambient_agent_task_id();
+
+            // Deliberately do NOT inject a task into AgentConversationsModel.
+            // `get_or_async_fetch_task_data` will return `None`, which forces
+            // the hydration to:
+            //   1. enter the existing ambient session in place (live-attach
+            //      preserved per Fix B contract);
+            //   2. register a pending hydration entry so the subscription
+            //      handler can retry once task data lands.
+
+            let mut child_conversation = AIConversation::new(false, false);
+            child_conversation.set_parent_conversation_id(parent_conversation_id);
+            child_conversation.set_task_id(task_id);
+            child_conversation.mark_as_remote_child();
+            let child_conversation_id = child_conversation.id();
+
+            panes.create_hidden_child_agent_pane(child_conversation, parent_pane_id, ctx);
+
+            let child_pane_id = panes
+                .child_agent_panes
+                .get(&child_conversation_id)
+                .copied()
+                .expect("remote child pane must be registered even when task data unavailable");
+
+            // The placeholder local AIConversationId remains the canonical key.
+            assert!(
+                panes
+                    .child_agent_panes
+                    .contains_key(&child_conversation_id),
+                "placeholder AIConversationId must stay the child_agent_panes key in fallback path",
+            );
+
+            // Live-attach preserved: the ambient agent view model is
+            // configured to view the existing session for `task_id`. This
+            // matches the pre-Fix-B behavior so streaming runs continue to
+            // attach.
+            let (ambient_task_id, _is_agent_running, active_conversation_id) =
+                ambient_child_session_state(panes, child_pane_id, ctx);
+            assert_eq!(
+                ambient_task_id,
+                Some(task_id),
+                "fallback path must still call enter_viewing_existing_session on the placeholder",
+            );
+            assert_eq!(active_conversation_id, Some(child_conversation_id));
+
+            // Fix B: pending hydration is recorded so the subscription handler
+            // can re-run hydration when task data lands. The tuple value is
+            // (placeholder_conversation_id, hidden_pane_id); the placeholder
+            // id must match the conversation we just restored.
+            let pending_entry = panes
+                .pending_remote_child_hydrations
+                .get(&task_id)
+                .expect(
+                    "task-data-unavailable hydration must register a pending entry keyed by task id",
+                );
+            assert_eq!(
+                pending_entry.0, child_conversation_id,
+                "pending hydration must record the placeholder's local AIConversationId",
+            );
+            assert_eq!(
+                pending_entry.1, child_pane_id,
+                "pending hydration must record the hidden child pane id",
+            );
+        });
+    });
+}
+
+/// Phase 1 integration coverage: validates that after `BlocklistAIHistoryModel`
+/// restoration (the same code path the disk-load Fix C unblocks), the
+/// orchestration topology is fully wired BEFORE the parent's fullscreen
+/// agent view is entered, AND that entering fullscreen lazily materializes
+/// the hidden child pane keyed by the placeholder local AIConversationId.
+///
+/// This is the integration boundary the user-visible bug lives at:
+///   * pill bar / transcript name resolution must succeed before the
+///     parent fullscreen entry (Fix C eagerly hydrates `conversations_by_id`
+///     so this works on disk-load; this test exercises the equivalent
+///     restore-into-history-model + lazy pane materialization flow).
+///   * the hidden child pane must materialize in `child_agent_panes` keyed
+///     by the placeholder conversation id after parent fullscreen.
+///
+/// The disk-load construction path (`BlocklistAIHistoryModel::new(_, &conversations)`
+/// invoking `initialize_historical_conversations`) is covered by
+/// `test_initialize_historical_conversations_eagerly_hydrates_orchestration_children`
+/// in `app/src/ai/blocklist/history_model_tests.rs`. `agent_display_name_from_id`
+/// resolution for restored children is covered by
+/// `participant_for_restored_child_run_id_resolves_to_agent_name` in
+/// `app/src/ai/blocklist/block/view_impl/orchestration_tests.rs`. The pill
+/// bar data-layer coverage is in
+/// `pill_bar_data_layer_finds_restored_children_before_pane_creation` in
+/// `app/src/ai/blocklist/agent_view/orchestration_pill_bar_tests.rs`. This
+/// test ties those three boundaries together at the PaneGroup integration
+/// layer.
+#[test]
+fn test_pane_group_restore_loop_keeps_orchestration_topology_and_materializes_child_pane() {
+    let _agent_view = FeatureFlag::AgentView.override_enabled(true);
+    let _orchestration_v2 = FeatureFlag::OrchestrationV2.override_enabled(true);
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let pane_group = mock_pane_group(&mut app, Default::default());
+
+        let (
+            parent_pane_id,
+            parent_conversation_id,
+            parent_run_id,
+            child_conversation_id,
+            child_run_id,
+            child_agent_name,
+        ) = pane_group.update(&mut app, |panes, ctx| {
+            let parent_pane_id = get_newly_created_pane_id(panes, &[]);
+            let parent_terminal_view_id = panes
+                .terminal_view_from_pane_id(parent_pane_id, ctx)
+                .expect("parent pane should have a terminal view")
+                .id();
+
+            let parent_conversation_id = start_parent_conversation(panes, parent_pane_id, ctx);
+            let parent_run_id = new_ambient_agent_task_id().to_string();
+            let child_run_id = new_ambient_agent_task_id().to_string();
+            let child_agent_name = "Agent 1".to_string();
+
+            // Restore a child conversation into the parent's terminal view. This
+            // is the same code path `RestoredAgentConversations::take_conversations`
+            // feeds into during pane restoration. Fix C ensures the equivalent
+            // wiring happens earlier (at history-model construction) so the data
+            // is also available before any terminal view materializes the parent.
+            let mut child_conversation = AIConversation::new(false, false);
+            child_conversation.set_parent_conversation_id(parent_conversation_id);
+            child_conversation.set_agent_name(child_agent_name.clone());
+            let child_conversation_id = child_conversation.id();
+            BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
+                history.restore_conversations(
+                    parent_terminal_view_id,
+                    vec![child_conversation],
+                    ctx,
+                );
+                // Stamp run_ids so orchestration agent_id lookups resolve.
+                history.assign_run_id_for_conversation(
+                    parent_conversation_id,
+                    parent_run_id.clone(),
+                    None,
+                    parent_terminal_view_id,
+                    ctx,
+                );
+                history.assign_run_id_for_conversation(
+                    child_conversation_id,
+                    child_run_id.clone(),
+                    None,
+                    parent_terminal_view_id,
+                    ctx,
+                );
+            });
+
+            (
+                parent_pane_id,
+                parent_conversation_id,
+                parent_run_id,
+                child_conversation_id,
+                child_run_id,
+                child_agent_name,
+            )
+        });
+
+        // BEFORE the parent's fullscreen agent view is entered, the
+        // orchestration data layer must already know:
+        //   (a) the parent → child topology (pill bar source),
+        //   (b) the child's local conversation (with agent name set), and
+        //   (c) the child's run_id → conversation id (transcript name
+        //       resolution source via `conversation_id_for_agent_id`).
+        pane_group.read(&app, |panes, ctx| {
+            let history = BlocklistAIHistoryModel::as_ref(ctx);
+
+            // (a) Topology — direct children index and the transitive walker
+            // used by `OrchestrationPillBar::pill_specs` must both find the
+            // child immediately, even though the hidden child pane has not
+            // been created yet.
+            assert_eq!(
+                history.child_conversation_ids_of(&parent_conversation_id),
+                &[child_conversation_id],
+                "orchestration topology must list the restored child under its parent before any pane materializes",
+            );
+            assert_eq!(
+                descendant_conversation_ids_in_spawn_order(history, parent_conversation_id),
+                vec![child_conversation_id],
+                "pill bar pre-order walker must reach the restored child before any pane materializes",
+            );
+
+            // (b) The child must be hydrated into `conversations_by_id`
+            // with its agent name preserved — this is the data Fix C
+            // eagerly populates on disk-load so the transcript name
+            // resolver finds the display name instead of falling back to
+            // "Unknown agent".
+            let child_conversation = history
+                .conversation(&child_conversation_id)
+                .expect("restored child must be in conversations_by_id before parent fullscreen");
+            assert_eq!(
+                child_conversation.agent_name(),
+                Some(child_agent_name.as_str()),
+                "restored child must retain its display name for transcript / pill bar rendering",
+            );
+
+            // (c) Run-id → conversation lookups (used by `participant_for_agent_id`).
+            assert_eq!(
+                history.conversation_id_for_agent_id(&child_run_id),
+                Some(child_conversation_id),
+                "child run_id must resolve to the restored child conversation",
+            );
+            assert_eq!(
+                history.conversation_id_for_agent_id(&parent_run_id),
+                Some(parent_conversation_id),
+                "parent run_id must resolve to the parent conversation",
+            );
+
+            // Hidden child pane must NOT exist yet — restoration is lazy and
+            // only materializes when the parent's agent view is entered.
+            assert!(
+                !panes.child_agent_panes.contains_key(&child_conversation_id),
+                "hidden child pane must not exist before parent fullscreen entry",
+            );
+        });
+
+        // Enter the parent's fullscreen agent view. This is the trigger for
+        // `restore_missing_child_agent_panes_for_parent`, which is the
+        // PaneGroup-side of the user-visible restart-loop bug.
+        pane_group.update(&mut app, |panes, ctx| {
+            enter_agent_view_for_conversation(panes, parent_pane_id, parent_conversation_id, ctx);
+        });
+
+        // AFTER fullscreen entry, the hidden child pane must materialize in
+        // `child_agent_panes` keyed by the placeholder local AIConversationId.
+        pane_group.read(&app, |panes, _ctx| {
+            let child_pane_id = panes
+                .child_agent_panes
+                .get(&child_conversation_id)
+                .copied()
+                .expect("parent fullscreen entry must materialize the hidden child pane");
+            assert!(
+                panes.has_pane_id(child_pane_id),
+                "materialized child pane must be tracked by the pane group",
+            );
+            assert!(
+                !panes.panes.is_pane_in_tree(child_pane_id),
+                "materialized child pane must remain off-tree (hidden)",
             );
         });
     });
