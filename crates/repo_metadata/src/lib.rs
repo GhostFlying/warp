@@ -30,6 +30,7 @@ pub enum RepoMetadataError {
 pub mod entry;
 pub mod file_tree_store;
 pub mod file_tree_update;
+mod gitignore_stack;
 pub mod local_model;
 pub mod remote_model;
 pub mod repositories;
