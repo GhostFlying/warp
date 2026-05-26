@@ -9,6 +9,50 @@ fn request_envelope_serializes_stable_action_names() {
 }
 
 #[test]
+fn input_staging_actions_are_non_executing_app_state_mutations() {
+    for action in [
+        ActionKind::InputInsert,
+        ActionKind::InputReplace,
+        ActionKind::InputClear,
+        ActionKind::InputModeSet,
+    ] {
+        let metadata = action.metadata();
+        assert_eq!(
+            metadata.implementation_status,
+            ActionImplementationStatus::Implemented
+        );
+        assert_eq!(
+            metadata.state_data_category,
+            StateDataCategory::AppStateMutation
+        );
+        assert_eq!(
+            metadata.permission_category,
+            PermissionCategory::MutateAppState
+        );
+        assert!(!metadata.authenticated_user.required);
+    }
+
+    let run_metadata = ActionKind::InputRun.metadata();
+    assert_eq!(
+        run_metadata.implementation_status,
+        ActionImplementationStatus::Stub
+    );
+    assert_eq!(
+        run_metadata.state_data_category,
+        StateDataCategory::UnderlyingDataMutation
+    );
+    assert_eq!(
+        run_metadata.permission_category,
+        PermissionCategory::MutateUnderlyingData
+    );
+    assert!(run_metadata.authenticated_user.required);
+    assert_eq!(
+        run_metadata.allowed_invocation_contexts,
+        vec![InvocationContext::InsideWarp]
+    );
+}
+
+#[test]
 fn response_error_serializes_machine_code() {
     let response = ResponseEnvelope::error(
         Uuid::nil(),
@@ -46,7 +90,6 @@ fn non_allowlisted_action_names_are_not_deserialized() {
         assert!(serde_json::from_value::<ActionKind>(serde_json::json!(action)).is_err());
     }
 }
-
 #[test]
 fn tab_create_metadata_is_first_slice_logged_out_safe_mutation() {
     let metadata = ActionKind::TabCreate.metadata();
@@ -129,12 +172,13 @@ fn default_permissions_preserve_security_categories() {
         PermissionCategory::ReadMetadata
     );
 }
+
 #[test]
-fn logged_out_safe_stub_actions_can_advertise_external_context() {
+fn logged_out_safe_app_state_actions_can_advertise_external_context() {
     let metadata = ActionKind::WindowCreate.metadata();
     assert_eq!(
         metadata.implementation_status,
-        ActionImplementationStatus::Stub
+        ActionImplementationStatus::Implemented
     );
     assert!(!metadata.authenticated_user.required);
     assert!(

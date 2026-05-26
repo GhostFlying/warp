@@ -325,7 +325,7 @@ define_action_catalog! {
         AppPing => { name: "app.ping", status: Implemented, authenticated_user: false, contexts: OutsideWarpOnly, state: MetadataRead, target: Instance, params: None, result: InstanceMetadata },
         AppVersion => { name: "app.version", status: Implemented, authenticated_user: false, contexts: OutsideWarpOnly, state: MetadataRead, target: Instance, params: None, result: InstanceMetadata },
         AppActive => { name: "app.active", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Instance, params: None, result: ActiveTarget },
-        AppFocus => { name: "app.focus", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Instance, params: None, result: Acknowledgement },
+        AppFocus => { name: "app.focus", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Instance, params: None, result: Acknowledgement },
     }
 
     auth {
@@ -341,45 +341,45 @@ define_action_catalog! {
     window {
         WindowList => { name: "window.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Window, params: None, result: TargetList },
         WindowInspect => { name: "window.inspect", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Window, params: None, result: TargetMetadata },
-        WindowCreate => { name: "window.create", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Window, params: TabCreate, result: Acknowledgement },
-        WindowFocus => { name: "window.focus", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Window, params: None, result: Acknowledgement },
-        WindowClose => { name: "window.close", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Window, params: None, result: Acknowledgement },
+        WindowCreate => { name: "window.create", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Window, params: TabCreate, result: Acknowledgement },
+        WindowFocus => { name: "window.focus", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Window, params: None, result: Acknowledgement },
+        WindowClose => { name: "window.close", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Window, params: None, result: Acknowledgement },
     }
 
     tab {
         TabList => { name: "tab.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Tab, params: None, result: TargetList },
         TabInspect => { name: "tab.inspect", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Tab, params: None, result: TargetMetadata },
         TabCreate => { name: "tab.create", status: Implemented, authenticated_user: false, contexts: OutsideWarpOnly, state: AppStateMutation, target: Tab, params: TabCreate, result: Acknowledgement },
-        TabActivate => { name: "tab.activate", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: TabActivate, result: Acknowledgement },
-        TabMove => { name: "tab.move", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: Direction, result: Acknowledgement },
-        TabClose => { name: "tab.close", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: TabClose, result: Acknowledgement },
-        TabRename => { name: "tab.rename", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: Rename, result: Acknowledgement },
-        TabResetName => { name: "tab.reset_name", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: None, result: Acknowledgement },
+        TabActivate => { name: "tab.activate", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: TabActivate, result: Acknowledgement },
+        TabMove => { name: "tab.move", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: Direction, result: Acknowledgement },
+        TabClose => { name: "tab.close", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Tab, params: TabClose, result: Acknowledgement },
+        TabRename => { name: "tab.rename", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: Rename, result: Acknowledgement },
+        TabResetName => { name: "tab.reset_name", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: None, result: Acknowledgement },
         TabColorSet => { name: "tab.color.set", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: ColorValue, result: Acknowledgement },
-        TabColorClear => { name: "tab.color.clear", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: None, result: Acknowledgement },
+        TabColorClear => { name: "tab.color.clear", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Tab, params: None, result: Acknowledgement },
     }
 
     pane {
         PaneList => { name: "pane.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Pane, params: None, result: TargetList },
         PaneInspect => { name: "pane.inspect", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Pane, params: None, result: TargetMetadata },
-        PaneSplit => { name: "pane.split", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: Direction, result: Acknowledgement },
-        PaneFocus => { name: "pane.focus", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
-        PaneNavigate => { name: "pane.navigate", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: Direction, result: Acknowledgement },
-        PaneResize => { name: "pane.resize", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: Resize, result: Acknowledgement },
-        PaneMaximize => { name: "pane.maximize", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
-        PaneUnmaximize => { name: "pane.unmaximize", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
-        PaneClose => { name: "pane.close", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
-        PaneRename => { name: "pane.rename", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Pane, params: Rename, result: Acknowledgement },
-        PaneResetName => { name: "pane.reset_name", status: Stub, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Pane, params: None, result: Acknowledgement },
+        PaneSplit => { name: "pane.split", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: Direction, result: Acknowledgement },
+        PaneFocus => { name: "pane.focus", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
+        PaneNavigate => { name: "pane.navigate", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: Direction, result: Acknowledgement },
+        PaneResize => { name: "pane.resize", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: Resize, result: Acknowledgement },
+        PaneMaximize => { name: "pane.maximize", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
+        PaneUnmaximize => { name: "pane.unmaximize", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
+        PaneClose => { name: "pane.close", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Pane, params: None, result: Acknowledgement },
+        PaneRename => { name: "pane.rename", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Pane, params: Rename, result: Acknowledgement },
+        PaneResetName => { name: "pane.reset_name", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataConfigurationMutation, target: Pane, params: None, result: Acknowledgement },
     }
 
     session {
         SessionList => { name: "session.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Session, params: None, result: TargetList },
         SessionInspect => { name: "session.inspect", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: Session, params: None, result: TargetMetadata },
-        SessionActivate => { name: "session.activate", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
-        SessionPrevious => { name: "session.previous", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
-        SessionNext => { name: "session.next", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
-        SessionReopenClosed => { name: "session.reopen_closed", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
+        SessionActivate => { name: "session.activate", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
+        SessionPrevious => { name: "session.previous", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
+        SessionNext => { name: "session.next", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
+        SessionReopenClosed => { name: "session.reopen_closed", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Session, params: None, result: Acknowledgement },
     }
 
     block {
@@ -390,10 +390,10 @@ define_action_catalog! {
 
     input {
         InputGet => { name: "input.get", status: Implemented, authenticated_user: false, contexts: Any, state: UnderlyingDataRead, target: Input, params: None, result: Content },
-        InputInsert => { name: "input.insert", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: Text, result: Acknowledgement },
-        InputReplace => { name: "input.replace", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: Text, result: Acknowledgement },
-        InputClear => { name: "input.clear", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: None, result: Acknowledgement },
-        InputModeSet => { name: "input.mode.set", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: InputMode, result: Acknowledgement },
+        InputInsert => { name: "input.insert", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: Text, result: Acknowledgement },
+        InputReplace => { name: "input.replace", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: Text, result: Acknowledgement },
+        InputClear => { name: "input.clear", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: None, result: Acknowledgement },
+        InputModeSet => { name: "input.mode.set", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Input, params: InputMode, result: Acknowledgement },
         InputRun => { name: "input.run", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: UnderlyingDataMutation, target: Input, params: Text, result: Acknowledgement },
     }
 
@@ -438,31 +438,31 @@ define_action_catalog! {
     }
 
     surface {
-        SurfaceSettingsOpen => { name: "surface.settings.open", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: PageQuery, result: Acknowledgement },
-        SurfaceCommandPaletteOpen => { name: "surface.command_palette.open", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: Query, result: Acknowledgement },
-        SurfaceCommandSearchOpen => { name: "surface.command_search.open", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: Query, result: Acknowledgement },
-        SurfaceWarpDriveOpen => { name: "surface.warp_drive.open", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceWarpDriveToggle => { name: "surface.warp_drive.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceResourceCenterToggle => { name: "surface.resource_center.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceAiAssistantToggle => { name: "surface.ai_assistant.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceCodeReviewToggle => { name: "surface.code_review.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceLeftPanelToggle => { name: "surface.left_panel.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceRightPanelToggle => { name: "surface.right_panel.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
-        SurfaceVerticalTabsToggle => { name: "surface.vertical_tabs.toggle", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceSettingsOpen => { name: "surface.settings.open", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: PageQuery, result: Acknowledgement },
+        SurfaceCommandPaletteOpen => { name: "surface.command_palette.open", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: Query, result: Acknowledgement },
+        SurfaceCommandSearchOpen => { name: "surface.command_search.open", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: Query, result: Acknowledgement },
+        SurfaceWarpDriveOpen => { name: "surface.warp_drive.open", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceWarpDriveToggle => { name: "surface.warp_drive.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceResourceCenterToggle => { name: "surface.resource_center.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceAiAssistantToggle => { name: "surface.ai_assistant.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceCodeReviewToggle => { name: "surface.code_review.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceLeftPanelToggle => { name: "surface.left_panel.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceRightPanelToggle => { name: "surface.right_panel.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
+        SurfaceVerticalTabsToggle => { name: "surface.vertical_tabs.toggle", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: Surface, params: None, result: Acknowledgement },
     }
 
     file {
         FileList => { name: "file.list", status: Implemented, authenticated_user: false, contexts: Any, state: MetadataRead, target: File, params: None, result: FileList },
-        FileOpen => { name: "file.open", status: Stub, authenticated_user: false, contexts: Any, state: AppStateMutation, target: File, params: FileOpen, result: Acknowledgement },
+        FileOpen => { name: "file.open", status: Implemented, authenticated_user: false, contexts: Any, state: AppStateMutation, target: File, params: FileOpen, result: Acknowledgement },
     }
 
     drive {
         DriveList => { name: "drive.list", status: Implemented, authenticated_user: true, contexts: InsideWarpOnly, state: MetadataRead, target: DriveObject, params: DriveObjectList, result: DriveObjectList },
         DriveInspect => { name: "drive.inspect", status: Implemented, authenticated_user: true, contexts: InsideWarpOnly, state: UnderlyingDataRead, target: DriveObject, params: DriveObjectId, result: DriveObjectMetadata },
-        DriveOpen => { name: "drive.open", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
-        DriveNotebookOpen => { name: "drive.notebook.open", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
-        DriveEnvVarCollectionOpen => { name: "drive.env_var_collection.open", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
-        DriveObjectShareOpen => { name: "drive.object.share.open", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
+        DriveOpen => { name: "drive.open", status: Implemented, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
+        DriveNotebookOpen => { name: "drive.notebook.open", status: Implemented, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
+        DriveEnvVarCollectionOpen => { name: "drive.env_var_collection.open", status: Implemented, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
+        DriveObjectShareOpen => { name: "drive.object.share.open", status: Implemented, authenticated_user: true, contexts: InsideWarpOnly, state: AppStateMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
         DriveObjectCreate => { name: "drive.object.create", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: UnderlyingDataMutation, target: DriveObject, params: DriveObjectCreate, result: Acknowledgement },
         DriveObjectUpdate => { name: "drive.object.update", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: UnderlyingDataMutation, target: DriveObject, params: DriveObjectUpdate, result: Acknowledgement },
         DriveObjectDelete => { name: "drive.object.delete", status: Stub, authenticated_user: true, contexts: InsideWarpOnly, state: UnderlyingDataMutation, target: DriveObject, params: DriveObjectId, result: Acknowledgement },
