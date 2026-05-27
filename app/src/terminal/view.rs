@@ -253,6 +253,9 @@ use crate::ai::blocklist::inline_action::code_diff_view::{CodeDiffView, FileDiff
 use crate::ai::blocklist::model::{
     AIBlockModel, AIBlockModelHelper, AIBlockModelImpl, AIBlockOutputStatus,
 };
+use crate::ai::blocklist::orchestration_topology::{
+    adjacent_orchestration_child_conversation_id, OrchestrationNavigationDirection,
+};
 use crate::ai::blocklist::suggested_agent_mode_workflow_modal::SuggestedAgentModeWorkflowAndId;
 use crate::ai::blocklist::suggested_rule_modal::SuggestedRuleAndId;
 use crate::ai::blocklist::summarization_cancel_dialog::SummarizationCancelDialog;
@@ -4741,6 +4744,33 @@ impl TerminalView {
             });
         }
         true
+    }
+
+    fn cycle_orchestration_child_agent(
+        &mut self,
+        direction: OrchestrationNavigationDirection,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let active_conversation_id = self
+            .agent_view_controller
+            .as_ref(ctx)
+            .agent_view_state()
+            .active_conversation_id();
+        let Some(active_conversation_id) = active_conversation_id else {
+            return;
+        };
+        let target_conversation_id = adjacent_orchestration_child_conversation_id(
+            BlocklistAIHistoryModel::as_ref(ctx),
+            active_conversation_id,
+            direction,
+        );
+        let Some(target_conversation_id) = target_conversation_id else {
+            return;
+        };
+
+        ctx.emit(Event::RevealChildAgent {
+            conversation_id: target_conversation_id,
+        });
     }
 
     /// Exits the active agent, either:
@@ -25625,6 +25655,8 @@ impl TypedActionView for TerminalView {
             | OpenChildAgentInNewTab { .. }
             | StopAgentConversation { .. }
             | KillAgentConversation { .. }
+            | CyclePreviousOrchestrationChildAgent
+            | CycleNextOrchestrationChildAgent
             | ToggleCLIAgentRichInput
             | ToggleSessionRecording => Empty,
         }
@@ -26756,6 +26788,15 @@ impl TypedActionView for TerminalView {
                 ctx.emit(Event::KillAgentConversation {
                     conversation_id: *conversation_id,
                 });
+            }
+            CyclePreviousOrchestrationChildAgent => {
+                self.cycle_orchestration_child_agent(
+                    OrchestrationNavigationDirection::Previous,
+                    ctx,
+                );
+            }
+            CycleNextOrchestrationChildAgent => {
+                self.cycle_orchestration_child_agent(OrchestrationNavigationDirection::Next, ctx);
             }
             ToggleSessionRecording => {
                 self.pty_recorder.update(ctx, |recorder, ctx| {

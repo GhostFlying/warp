@@ -9,6 +9,12 @@
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OrchestrationNavigationDirection {
+    Previous,
+    Next,
+}
+
 /// Returns all locally-known descendants (children, grandchildren, …) of
 /// `parent_id`, flattened in pre-order with each parent's child registration
 /// order preserved.
@@ -39,6 +45,51 @@ pub fn collect_descendant_conversation_ids_in_spawn_order(
         descendants.push(*child_id);
         collect_descendant_conversation_ids_in_spawn_order(history, *child_id, descendants);
     }
+}
+
+/// Returns the adjacent child-agent conversation in the active orchestration
+/// tree, wrapping within the child list.
+///
+/// The orchestrator itself is treated as the entry point into the child list:
+/// "next" jumps to the first child and "previous" jumps to the last child.
+/// Once focused on a child, navigation cycles through descendants in the same
+/// pre-order used by the orchestration pill bar.
+pub fn adjacent_orchestration_child_conversation_id(
+    history: &BlocklistAIHistoryModel,
+    active_conversation_id: AIConversationId,
+    direction: OrchestrationNavigationDirection,
+) -> Option<AIConversationId> {
+    let active_conversation = history.conversation(&active_conversation_id)?;
+    let orchestration_root_id = history
+        .resolved_parent_conversation_id_for_conversation(active_conversation)
+        .unwrap_or(active_conversation_id);
+    let child_ids = descendant_conversation_ids_in_spawn_order(history, orchestration_root_id);
+
+    if child_ids.is_empty() {
+        return None;
+    }
+
+    let Some(active_index) = child_ids
+        .iter()
+        .position(|child_id| *child_id == active_conversation_id)
+    else {
+        return match direction {
+            OrchestrationNavigationDirection::Previous => child_ids.last().copied(),
+            OrchestrationNavigationDirection::Next => child_ids.first().copied(),
+        };
+    };
+
+    if child_ids.len() == 1 {
+        return None;
+    }
+
+    let target_index = match direction {
+        OrchestrationNavigationDirection::Previous => {
+            active_index.checked_sub(1).unwrap_or(child_ids.len() - 1)
+        }
+        OrchestrationNavigationDirection::Next => (active_index + 1) % child_ids.len(),
+    };
+    child_ids.get(target_index).copied()
 }
 
 /// Returns a `ConversationStatus` that summarises the orchestrator's state
