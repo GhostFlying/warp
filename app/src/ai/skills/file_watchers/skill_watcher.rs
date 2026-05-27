@@ -37,8 +37,7 @@ pub struct SkillWatcher {
     /// so repo metadata changes trigger a full refresh instead of a subtree diff.
     project_skill_files_by_repo: HashMap<RepositoryIdentifier, HashSet<LocalOrRemotePath>>,
     /// Failed local repos still need the project file watcher path because
-    /// repo metadata indexing can fail for oversized repos. This replaces the
-    /// previous `watched_repos` set so we only subscribe when fallback is active
+    /// repo metadata indexing can fail for oversized repos. We only subscribe when fallback is active
     /// and can also clean up the subscriber on repo removal.
     failed_local_project_watchers: HashMap<PathBuf, (ModelHandle<Repository>, SubscriberId)>,
     watcher_event_tx: Sender<SkillWatcherEvent>,
