@@ -65,8 +65,18 @@ pub fn convert_persisted_conversation_to_ai_conversation(
 pub fn convert_persisted_conversation_to_ai_conversation_with_metadata(
     persisted_conversation: AgentConversation,
 ) -> Option<AIConversation> {
+    // Detect and drop the optimistic stub task (zero-message root paired with
+    // a real upgraded root) BEFORE consuming the conversation. The pattern is
+    // observed on local-no-harness Oz children that persisted the optimistic
+    // root before the server-issued task arrived; both end up in
+    // `agent_tasks` and the unfiltered list looks like "two root tasks" to
+    // `is_restorable`/`new_restored`.
+    let stub_task_id: Option<String> =
+        persistence::model::optimistic_stub_task_id(&persisted_conversation.tasks)
+            .map(|s| s.to_string());
+
     let AgentConversation {
-        tasks,
+        mut tasks,
         conversation:
             AgentConversationRecord {
                 conversation_id,
@@ -74,6 +84,13 @@ pub fn convert_persisted_conversation_to_ai_conversation_with_metadata(
                 ..
             },
     } = persisted_conversation;
+
+    if let Some(stub_id) = stub_task_id.as_deref() {
+        log::info!(
+            "[ORCH-RESTORE-DBG] dropping optimistic stub task {stub_id} for conversation {conversation_id}",
+        );
+        tasks.retain(|task| task.id != stub_id);
+    }
 
     let conversation_id = match AIConversationId::try_from(conversation_id) {
         Ok(id) => id,
@@ -517,10 +534,29 @@ impl BlocklistAIHistoryModel {
                     }
                 }
 
+                let num_root_tasks = agent_conversation
+                    .tasks
+                    .iter()
+                    .filter(|t| {
+                        t.dependencies
+                            .as_ref()
+                            .map(|deps| deps.parent_task_id.is_empty())
+                            .unwrap_or(true)
+                    })
+                    .count();
+                let num_zero_message_tasks = agent_conversation
+                    .tasks
+                    .iter()
+                    .filter(|t| t.messages.is_empty())
+                    .count();
+                let stub_id_for_log =
+                    persistence::model::optimistic_stub_task_id(&agent_conversation.tasks);
                 log::info!(
                     "[ORCH-RESTORE-DBG] row id={conversation_id} parent_id={parent:?} \
                      parent_agent_id={paid:?} run_id={run:?} agent_name={name:?} \
-                     is_remote_child={remote:?} num_tasks={tasks} root_task_is_optimistic={opt:?}",
+                     is_remote_child={remote:?} num_tasks={tasks} num_root_tasks={nrt} \
+                     num_zero_message_tasks={nzm} optimistic_stub_task_id={stub:?} \
+                     root_task_is_optimistic={opt:?}",
                     parent = conversation_data
                         .as_ref()
                         .and_then(|d| d.parent_conversation_id.as_deref()),
@@ -528,9 +564,14 @@ impl BlocklistAIHistoryModel {
                         .as_ref()
                         .and_then(|d| d.parent_agent_id.as_deref()),
                     run = conversation_data.as_ref().and_then(|d| d.run_id.as_deref()),
-                    name = conversation_data.as_ref().and_then(|d| d.agent_name.as_deref()),
+                    name = conversation_data
+                        .as_ref()
+                        .and_then(|d| d.agent_name.as_deref()),
                     remote = conversation_data.as_ref().map(|d| d.is_remote_child),
                     tasks = agent_conversation.tasks.len(),
+                    nrt = num_root_tasks,
+                    nzm = num_zero_message_tasks,
+                    stub = stub_id_for_log,
                     opt = conversation_data
                         .as_ref()
                         .and_then(|d| d.root_task_is_optimistic),

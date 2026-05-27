@@ -811,13 +811,7 @@ impl BlocklistAIHistoryModel {
 
         let restore_ids: Vec<(AIConversationId, Option<String>, Option<String>)> = conversations
             .iter()
-            .map(|c| {
-                (
-                    c.id(),
-                    c.run_id(),
-                    c.agent_name().map(|s| s.to_string()),
-                )
-            })
+            .map(|c| (c.id(), c.run_id(), c.agent_name().map(|s| s.to_string())))
             .collect();
         log::info!(
             "[ORCH-RESTORE-DBG] restore_conversations entry: terminal_view_id={terminal_view_id:?} \
