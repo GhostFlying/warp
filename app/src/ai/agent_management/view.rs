@@ -375,6 +375,7 @@ impl AgentManagementView {
         view.sync_with_loaded_filters(ctx);
         view.update_creator_dropdown(ctx);
         view.update_environment_dropdown(ctx);
+        view.update_registered_filters(ctx);
 
         // Trigger server fetch if persisted filters differ from defaults
         // (team tasks are not loaded at startup, so we need to fetch them)
@@ -866,6 +867,20 @@ impl AgentManagementView {
         self.get_tasks_from_model(ctx);
         ctx.dispatch_global_action("workspace:save_app", ());
     }
+    fn update_registered_filters(&self, ctx: &mut ViewContext<Self>) {
+        let current_user_uid = AuthStateProvider::handle(ctx)
+            .as_ref(ctx)
+            .get()
+            .user_id()
+            .map(|uid| uid.as_string());
+        if let Some(uid) = current_user_uid {
+            let view_id = ctx.view_id();
+            let filters = self.filters.clone();
+            AgentConversationsModel::handle(ctx).update(ctx, |model, _| {
+                model.set_data_consumer_filters(view_id, &filters, &uid);
+            });
+        }
+    }
 
     /// Trigger a server fetch for tasks matching current filters.
     fn trigger_filter_fetch(&self, ctx: &mut ViewContext<Self>) {
@@ -875,8 +890,10 @@ impl AgentManagementView {
             .user_id()
             .map(|uid| uid.as_string());
         if let Some(uid) = current_user_uid {
+            let view_id = ctx.view_id();
             let filters = self.filters.clone();
             AgentConversationsModel::handle(ctx).update(ctx, |model, ctx| {
+                model.set_data_consumer_filters(view_id, &filters, &uid);
                 model.fetch_tasks_for_filters(&filters, &uid, ctx);
             });
         }
@@ -2275,8 +2292,7 @@ impl TypedActionView for AgentManagementView {
             }
             AgentManagementViewAction::SetArtifactFilter(filter) => {
                 self.filters.artifact = *filter;
-                self.get_tasks_from_model(ctx);
-                ctx.dispatch_global_action("workspace:save_app", ());
+                self.on_filter_changed(ctx);
             }
             AgentManagementViewAction::SetEnvironmentFilter(filter) => {
                 self.filters.environment = filter.clone();

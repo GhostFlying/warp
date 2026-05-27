@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use persistence::model::{AgentConversationData, ConversationUsageMetadata};
 use warp_cli::agent::Harness;
 use warp_core::features::FeatureFlag;
-use warpui::{App, EntityId, ModelHandle, SingletonEntity};
+use warpui::{App, EntityId, ModelHandle, SingletonEntity, WindowId};
 
 use super::entry::{
     AgentConversationEntryId, AgentConversationNavigationSubject, AgentConversationProvenance,
@@ -37,6 +37,7 @@ use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::{Owner, Revision, ServerMetadata, ServerPermissions};
 use crate::server::ids::ServerId;
+use crate::server::server_api::ai::ArtifactType as ServerArtifactType;
 use crate::test_util::ai_agent_tasks::{create_api_task, create_message};
 use crate::workspace::WorkspaceAction;
 
@@ -579,11 +580,71 @@ fn create_test_model() -> AgentConversationsModel {
         in_flight_poll_abort_handle: None,
         next_poll_abort_handle: None,
         active_data_consumers_per_window: HashMap::new(),
+        active_data_consumer_task_filters: HashMap::new(),
         has_finished_initial_load: false,
         task_fetch_state: Default::default(),
         rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState::default(),
         dirty_since: None,
     }
+}
+
+#[test]
+fn task_list_filter_includes_artifact_type() {
+    let model = create_test_model();
+    let cases = [
+        (ArtifactFilter::PullRequest, ServerArtifactType::PullRequest),
+        (ArtifactFilter::Plan, ServerArtifactType::Plan),
+        (ArtifactFilter::Screenshot, ServerArtifactType::Screenshot),
+        (ArtifactFilter::File, ServerArtifactType::File),
+    ];
+
+    for (artifact, expected) in cases {
+        let filters = AgentManagementFilters {
+            artifact,
+            ..Default::default()
+        };
+        assert_eq!(
+            model
+                .build_task_list_filter(&filters, "user-a")
+                .artifact_type,
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn rtc_filters_use_registered_consumer_filters() {
+    let mut model = create_test_model();
+    let view_id = EntityId::new();
+    model
+        .active_data_consumers_per_window
+        .insert(WindowId::new(), HashSet::from([view_id]));
+    let filters = AgentManagementFilters {
+        owners: OwnerFilter::PersonalOnly,
+        artifact: ArtifactFilter::Plan,
+        ..Default::default()
+    };
+
+    model.set_data_consumer_filters(view_id, &filters, "user-a");
+
+    let filters = model.active_task_list_filters_for_rtc();
+    assert_eq!(filters.len(), 1);
+    assert_eq!(filters[0].creator_uid.as_deref(), Some("user-a"));
+    assert_eq!(filters[0].artifact_type, Some(ServerArtifactType::Plan));
+}
+
+#[test]
+fn rtc_filters_include_default_for_unregistered_consumer() {
+    let mut model = create_test_model();
+    let view_id = EntityId::new();
+    model
+        .active_data_consumers_per_window
+        .insert(WindowId::new(), HashSet::from([view_id]));
+
+    let filters = model.active_task_list_filters_for_rtc();
+    assert_eq!(filters.len(), 1);
+    assert_eq!(filters[0].creator_uid, None);
+    assert_eq!(filters[0].artifact_type, None);
 }
 
 #[test]

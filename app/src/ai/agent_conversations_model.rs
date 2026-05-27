@@ -50,7 +50,7 @@ use crate::server::ids::{ServerId, SyncId};
 use crate::server::retry_strategies::{
     is_transient_http_error, OUT_OF_BAND_REQUEST_RETRY_STRATEGY, PERIODIC_POLL_RETRY_STRATEGY,
 };
-use crate::server::server_api::ai::TaskListFilter;
+use crate::server::server_api::ai::{ArtifactType as ServerArtifactType, TaskListFilter};
 use crate::server::server_api::ServerApiProvider;
 use crate::settings::AISettings;
 use crate::ui_components::icons::Icon;
@@ -522,6 +522,8 @@ pub struct AgentConversationsModel {
     /// Set of view IDs actively consuming this model's data per window.
     /// When a window has at least one consumer, we poll for new tasks while that window is active.
     active_data_consumers_per_window: HashMap<WindowId, HashSet<EntityId>>,
+    /// Server-side task filters for active data consumers that need filtered RTC refreshes.
+    active_data_consumer_task_filters: HashMap<EntityId, TaskListFilter>,
     /// Whether we have finished the initial task load
     has_finished_initial_load: bool,
     /// Per-task fetch state for `get_or_async_fetch_task_data`. See [`TaskFetchState`] for
@@ -530,7 +532,7 @@ pub struct AgentConversationsModel {
     task_fetch_state: HashMap<AmbientAgentTaskId, TaskFetchState>,
     rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState,
     /// Earliest RTC timestamp received while no list surface was open.
-    /// On next `register_view_open`, triggers a single `fetch_tasks_updated_after`.
+    /// On next `register_view_open`, flushes updated tasks.
     dirty_since: Option<DateTime<Utc>>,
 }
 
@@ -576,6 +578,7 @@ impl AgentConversationsModel {
                 in_flight_poll_abort_handle: None,
                 next_poll_abort_handle: None,
                 active_data_consumers_per_window: HashMap::new(),
+                active_data_consumer_task_filters: HashMap::new(),
                 has_finished_initial_load: true,
                 task_fetch_state: HashMap::new(),
                 rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState::default(),
@@ -615,6 +618,7 @@ impl AgentConversationsModel {
             in_flight_poll_abort_handle: None,
             next_poll_abort_handle: None,
             active_data_consumers_per_window: HashMap::new(),
+            active_data_consumer_task_filters: HashMap::new(),
             has_finished_initial_load: false,
             task_fetch_state: HashMap::new(),
             rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState::default(),
@@ -709,6 +713,24 @@ impl AgentConversationsModel {
         }
     }
 
+    fn active_task_list_filters_for_rtc(&self) -> Vec<TaskListFilter> {
+        let has_unfiltered_consumer = self
+            .active_data_consumers_per_window
+            .values()
+            .flat_map(|views| views.iter())
+            .any(|view_id| !self.active_data_consumer_task_filters.contains_key(view_id));
+        let mut task_filters: Vec<_> = self
+            .active_data_consumers_per_window
+            .values()
+            .flat_map(|views| views.iter())
+            .filter_map(|view_id| self.active_data_consumer_task_filters.get(view_id).cloned())
+            .collect();
+        if has_unfiltered_consumer || task_filters.is_empty() {
+            task_filters.push(TaskListFilter::default());
+        }
+        task_filters
+    }
+
     // Handle RTC invalidations for list views, respecting the refresh throttling.
     fn handle_rtc_for_list_views(
         &mut self,
@@ -717,7 +739,7 @@ impl AgentConversationsModel {
     ) {
         match std::mem::take(&mut self.rtc_task_refresh_throttle_state) {
             RtcTaskRefreshThrottleState::Idle => {
-                self.fetch_tasks_updated_after(timestamp, ctx);
+                self.fetch_tasks_updated_after_for_active_filters(timestamp, ctx);
                 self.start_rtc_task_refresh_throttle_timer(ctx);
             }
             RtcTaskRefreshThrottleState::CoolingDown {
@@ -748,7 +770,7 @@ impl AgentConversationsModel {
                     };
 
                 if let Some(timestamp) = pending_timestamp {
-                    model.fetch_tasks_updated_after(timestamp, ctx);
+                    model.fetch_tasks_updated_after_for_active_filters(timestamp, ctx);
                     model.start_rtc_task_refresh_throttle_timer(ctx);
                 }
             },
@@ -768,31 +790,37 @@ impl AgentConversationsModel {
         }
     }
 
-    /// Fetch tasks updated after the given timestamp (minus 1 second buffer since server uses `>` not `>=`).
-    fn fetch_tasks_updated_after(
+    fn fetch_tasks_updated_after_for_active_filters(
         &mut self,
         timestamp: DateTime<Utc>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        for task_filter in self.active_task_list_filters_for_rtc() {
+            self.fetch_tasks_updated_after_with_filter(timestamp, task_filter, ctx);
+        }
+    }
+
+    fn fetch_tasks_updated_after_with_filter(
+        &mut self,
+        timestamp: DateTime<Utc>,
+        mut task_filter: TaskListFilter,
         ctx: &mut ModelContext<Self>,
     ) {
         let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
 
         // Subtract 1 second to give buffer for clock differences with server
         let updated_after = timestamp - chrono::Duration::seconds(1);
+        task_filter.updated_after = Some(updated_after);
         // Reset `dirty_since` now that we are doing a fetch.
         self.dirty_since = None;
 
         ctx.spawn_with_retry_on_error(
             move || {
                 let ai_client = ai_client.clone();
+                let task_filter = task_filter.clone();
                 async move {
                     ai_client
-                        .list_ambient_agent_tasks(
-                            INITIAL_TASK_AMOUNT,
-                            TaskListFilter {
-                                updated_after: Some(updated_after),
-                                ..Default::default()
-                            },
-                        )
+                        .list_ambient_agent_tasks(INITIAL_TASK_AMOUNT, task_filter)
                         .await
                 }
             },
@@ -984,7 +1012,7 @@ impl AgentConversationsModel {
 
         // Flush dirty tasks accumulated while no list surface was open.
         if let Some(dirty_since) = self.dirty_since.take() {
-            self.fetch_tasks_updated_after(dirty_since, ctx);
+            self.fetch_tasks_updated_after_for_active_filters(dirty_since, ctx);
         }
     }
 
@@ -1002,7 +1030,19 @@ impl AgentConversationsModel {
                 self.active_data_consumers_per_window.remove(&window_id);
             }
         }
+        self.active_data_consumer_task_filters.remove(&view_id);
         self.update_polling_state(ctx);
+    }
+
+    pub fn set_data_consumer_filters(
+        &mut self,
+        view_id: EntityId,
+        filters: &AgentManagementFilters,
+        current_user_uid: &str,
+    ) {
+        let task_filter = self.build_task_list_filter(filters, current_user_uid);
+        self.active_data_consumer_task_filters
+            .insert(view_id, task_filter);
     }
 
     /// Updates the polling state based on whether the active window has the view open.
@@ -1772,12 +1812,21 @@ impl AgentConversationsModel {
             EnvironmentFilter::Specific(id) => Some(id.clone()),
         };
 
+        let artifact_type = match filters.artifact {
+            ArtifactFilter::All => None,
+            ArtifactFilter::PullRequest => Some(ServerArtifactType::PullRequest),
+            ArtifactFilter::Plan => Some(ServerArtifactType::Plan),
+            ArtifactFilter::Screenshot => Some(ServerArtifactType::Screenshot),
+            ArtifactFilter::File => Some(ServerArtifactType::File),
+        };
+
         TaskListFilter {
             creator_uid,
             states,
             source,
             created_after,
             environment_id,
+            artifact_type,
             ..TaskListFilter::default()
         }
     }
@@ -1873,6 +1922,7 @@ impl AgentConversationsModel {
         self.abort_existing_poll();
         self.abort_rtc_task_refresh_throttle();
         self.active_data_consumers_per_window.clear();
+        self.active_data_consumer_task_filters.clear();
         self.task_fetch_state.clear();
         self.dirty_since = None;
         // Reset the initial load flag so that we can retry the initial sync with the new logged in user
