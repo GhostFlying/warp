@@ -48,7 +48,7 @@ use crate::ai::agent::linearization::compute_task_depths;
 use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::{
     AIAgentOutputMessage, AIAgentOutputMessageType, AIIdentifiers, CancellationReason,
-    MessageToAIAgentOutputMessageError,
+    MessageToAIAgentOutputMessageError, SummarizationType,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::artifacts::Artifact;
@@ -645,6 +645,26 @@ impl AIConversation {
 
     pub fn was_summarized(&self) -> bool {
         self.conversation_usage_metadata.was_summarized
+    }
+
+    /// Returns true if the conversation is currently being summarized.
+    pub fn is_summarizing(&self) -> bool {
+        let Some(exchange) = self.latest_visible_exchange() else {
+            return false;
+        };
+        let Some(output) = exchange.output_status.output() else {
+            return false;
+        };
+        output.get().messages.last().is_some_and(|m| {
+            matches!(
+                m.message,
+                AIAgentOutputMessageType::Summarization {
+                    finished_duration: None,
+                    summarization_type: SummarizationType::ConversationSummary,
+                    ..
+                }
+            )
+        })
     }
 
     pub fn context_window_usage(&self) -> f32 {
