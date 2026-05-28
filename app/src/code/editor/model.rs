@@ -10,13 +10,13 @@ use std::{cmp, mem};
 
 use ai::diff_validation::DiffDelta;
 use itertools::Itertools;
-use languages::{language_by_filename, language_by_local_filename, language_by_name, Language};
+use languages::{Language, language_by_filename, language_by_local_filename, language_by_name};
 use line_ending::LineEnding;
 use num_traits::SaturatingSub;
 use rangemap::{RangeMap, RangeSet};
 use string_offset::CharOffset;
 use syntax_tree::{ColorMap, DecorationStateEvent, SyntaxTreeState};
-use vec1::{vec1, Vec1};
+use vec1::{Vec1, vec1};
 use vim::vim::{
     BracketChar, CharacterMotion, Direction, FindCharMotion, FirstNonWhitespaceMotion,
     InsertPosition, LineMotion, MotionType, TextObjectInclusion, TextObjectType, VimOperator,
@@ -45,7 +45,7 @@ use warp_editor::content::version::BufferVersion;
 use warp_editor::decoration::DecorationLayer;
 use warp_editor::editor::TextDecoration;
 use warp_editor::model::{CoreEditorModel, PlainTextEditorModel};
-use warp_editor::multiline::{AnyMultilineString, MultilineString, LF};
+use warp_editor::multiline::{AnyMultilineString, LF, MultilineString};
 use warp_editor::render::model::{
     AutoScrollMode, BlockItem, Decoration, LineCount, LineDecoration, RenderEvent,
     RenderLineLocation, RenderState, RichTextStyles, StyleUpdateAction,
@@ -57,15 +57,15 @@ use warpui::elements::{
     AnchorPair, OffsetPositioning, OffsetType, PositionedElementOffsetBounds, PositioningAxis,
     XAxisAnchor, YAxisAnchor,
 };
-use warpui::text::point::Point;
 use warpui::text::TextBuffer;
+use warpui::text::point::Point;
 use warpui::units::{IntoPixels, Pixels};
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use super::super::DiffResult;
 use super::comments::{EditorCommentsModel, PendingComment, PendingCommentEvent};
 use super::diff::{
-    add_inline_overlay_color, DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk,
+    DiffModel, DiffModelEvent, DiffStatus, RenderableDiffHunk, add_inline_overlay_color,
 };
 use super::line::EditorLineLocation;
 use crate::appearance::Appearance;
@@ -255,7 +255,8 @@ impl DelayRendering {
         model.render_state.update(ctx, move |render_state, _| {
             let should_autoscroll = self.should_autoscroll;
             for (delta, content_version) in self.edits {
-                render_state.add_pending_edit(delta.clone(), content_version);
+                // `delta` is already owned (moved out of `self.edits`); no clone needed.
+                render_state.add_pending_edit(delta, content_version);
             }
             match should_autoscroll {
                 ShouldAutoscroll::Yes => render_state.request_autoscroll(),
