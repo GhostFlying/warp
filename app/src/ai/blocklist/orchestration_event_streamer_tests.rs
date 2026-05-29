@@ -267,8 +267,6 @@ fn dormant_local_claude_child_skips_generic_sse_but_allows_wake_listener() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let parent_id = AIConversation::new(false, false).id();
@@ -332,8 +330,6 @@ fn persist_event_cursor_keeps_the_max_sequence_and_updates_history_model() {
     use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         initialize_settings_for_tests(&mut app);
         let (sender, receiver) = std::sync::mpsc::sync_channel::<ModelEvent>(4);
         let mut global_resource_handles = GlobalResourceHandles::mock(&mut app);
@@ -401,8 +397,6 @@ fn wake_ready_does_not_advance_cursor_before_wake_preparation() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let mut conversation = AIConversation::new(false, false);
@@ -466,8 +460,6 @@ fn dormant_local_claude_child_uses_task_harness_when_server_metadata_missing() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let parent_id = AIConversation::new(false, false).id();
@@ -586,7 +578,7 @@ async fn dormant_claude_wake_consumer_stops_on_first_target_event() {
 }
 
 #[test]
-fn restored_conversations_skip_v2_streaming_when_orchestration_v2_disabled() {
+fn restored_conversations_initialize_v2_streaming_state() {
     use std::sync::Arc;
 
     use warpui::App;
@@ -596,8 +588,6 @@ fn restored_conversations_skip_v2_streaming_when_orchestration_v2_disabled() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(false);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let mut conversation = AIConversation::new(false, false);
@@ -622,8 +612,8 @@ fn restored_conversations_skip_v2_streaming_when_orchestration_v2_disabled() {
 
         streamer.read(&app, |me, _| {
             assert!(
-                me.streams.is_empty(),
-                "V2-disabled restore must not initialize stream state"
+                me.streams.contains_key(&conversation_id),
+                "restore should initialize stream state"
             );
         });
     });
@@ -701,8 +691,6 @@ fn finish_restore_fetch_uses_server_cursor_when_sqlite_is_absent() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         // Restore a conversation with no SQLite cursor (`last_event_sequence:
@@ -765,8 +753,6 @@ fn handle_event_batch_persists_max_seq_to_history_model() {
     use crate::{GlobalResourceHandles, GlobalResourceHandlesProvider};
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         // `update_event_sequence` calls `write_updated_conversation_state`,
         // which reads `GeneralSettings`, `AppExecutionMode`, and the global
         // resource sender. Wire all of these up so the SQLite write can run.
@@ -852,8 +838,6 @@ fn handle_event_batch_persists_max_seq_to_history_model() {
 #[test]
 fn handle_event_batch_drops_events_for_killed_run_ids_after_persisting_cursor() {
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         initialize_settings_for_tests(&mut app);
         let (sender, _receiver) = std::sync::mpsc::sync_channel::<ModelEvent>(4);
         let mut global_resource_handles = GlobalResourceHandles::mock(&mut app);
@@ -998,8 +982,6 @@ fn finish_restore_fetch_no_ops_when_conversation_deleted_mid_flight() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let mut conversation = AIConversation::new(false, false);
@@ -1069,8 +1051,6 @@ fn finish_restore_fetch_err_does_not_resurrect_deleted_conversation() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let mut conversation = AIConversation::new(false, false);
@@ -1136,8 +1116,6 @@ fn on_conversation_removed_prunes_stale_child_run_id_from_parent() {
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let parent_id = AIConversation::new(false, false).id();
@@ -1197,8 +1175,6 @@ fn on_conversation_removed_prunes_killed_child_run_id_from_parent_but_keeps_tomb
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let parent_id = AIConversation::new(false, false).id();
@@ -1546,8 +1522,6 @@ fn is_remote_run_view_excludes_shared_session_viewer() {
     use crate::ai::agent::conversation::AIConversation;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         // Build a shared-session viewer conversation by passing
@@ -1581,8 +1555,6 @@ fn is_remote_run_view_excludes_remote_child() {
     use crate::ai::agent::conversation::AIConversation;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let mut conversation = AIConversation::new(false, false);
@@ -1613,8 +1585,6 @@ fn is_remote_run_view_excludes_remote_child() {
 #[test]
 fn reevaluate_eligibility_does_not_reconnect_when_watched_run_ids_unchanged() {
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let own_run_id = "550e8400-e29b-41d4-a716-446655440401";
@@ -1703,8 +1673,6 @@ fn finish_restore_fetch_reconnects_sse_when_children_added_to_open_connection() 
     use crate::server::server_api::ServerApiProvider;
 
     App::test((), |mut app| async move {
-        let _v2_guard = FeatureFlag::OrchestrationV2.override_enabled(true);
-
         let history_model = app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], &[]));
 
         let own_run_id = "550e8400-e29b-41d4-a716-446655440400";
