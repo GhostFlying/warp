@@ -101,15 +101,18 @@ fn update_instructions_are_empty_without_codex_plugin() {
 #[test]
 fn installed_when_config_enabled() {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(
-        dir.path().join("config.toml"),
-        "[plugins.\"warp@codex-warp\"]\nenabled = true\n",
-    )
-    .unwrap();
+    write_enabled_config(dir.path());
 
     assert!(super::check_installed(dir.path()));
 }
 
+#[test]
+fn platform_plugin_installed_when_config_enabled() {
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+
+    assert!(super::check_platform_plugin_installed(dir.path()));
+}
 #[test]
 fn not_installed_when_config_disabled() {
     let dir = tempfile::tempdir().unwrap();
@@ -120,6 +123,17 @@ fn not_installed_when_config_disabled() {
     .unwrap();
 
     assert!(!super::check_installed(dir.path()));
+}
+#[test]
+fn platform_plugin_not_installed_when_config_disabled() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("config.toml"),
+        "[plugins.\"orchestration@codex-warp\"]\nenabled = false\n",
+    )
+    .unwrap();
+
+    assert!(!super::check_platform_plugin_installed(dir.path()));
 }
 
 #[test]
@@ -145,6 +159,19 @@ fn installed_version_returns_latest_manifest_version() {
 
     assert_eq!(
         super::installed_version(dir.path()).as_deref(),
+        Some("1.5.0")
+    );
+}
+
+#[test]
+fn installed_platform_plugin_version_returns_latest_manifest_version() {
+    let dir = tempfile::tempdir().unwrap();
+    write_platform_manifest(dir.path(), "0.9.0");
+    write_platform_manifest(dir.path(), "1.5.0");
+    write_platform_manifest(dir.path(), "1.2.0");
+
+    assert_eq!(
+        super::installed_platform_plugin_version(dir.path()).as_deref(),
         Some("1.5.0")
     );
 }
@@ -206,6 +233,32 @@ fn needs_update_logic_false_when_version_current() {
 }
 
 #[test]
+fn platform_plugin_needs_update_logic_true_when_version_outdated() {
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+    write_platform_manifest(dir.path(), "0.2.0");
+
+    let needs_update = match super::installed_platform_plugin_version(dir.path()) {
+        Some(v) => compare_versions(&v, super::MINIMUM_PLATFORM_PLUGIN_VERSION).is_lt(),
+        None => super::check_platform_plugin_installed(dir.path()),
+    };
+    assert!(needs_update);
+}
+
+#[test]
+fn platform_plugin_needs_update_logic_false_when_version_current() {
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+    write_platform_manifest(dir.path(), "0.4.0");
+
+    let needs_update = match super::installed_platform_plugin_version(dir.path()) {
+        Some(v) => compare_versions(&v, super::MINIMUM_PLATFORM_PLUGIN_VERSION).is_lt(),
+        None => super::check_platform_plugin_installed(dir.path()),
+    };
+    assert!(!needs_update);
+}
+
+#[test]
 #[serial_test::serial]
 fn is_not_installed_via_trait_without_codex_plugin() {
     let _guard = FeatureFlag::CodexPlugin.override_enabled(false);
@@ -235,6 +288,92 @@ fn is_installed_via_trait_with_codex_home_env() {
 
 #[test]
 #[serial_test::serial]
+fn is_platform_plugin_installed_via_trait_with_codex_home_env() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(true);
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).is_platform_plugin_installed();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(result);
+}
+
+#[test]
+#[serial_test::serial]
+fn is_platform_plugin_not_installed_via_trait_without_codex_plugin() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(false);
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).is_platform_plugin_installed();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(!result);
+}
+
+#[test]
+#[serial_test::serial]
+fn platform_plugin_does_not_need_update_without_codex_plugin() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(false);
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+    write_platform_manifest(dir.path(), "0.2.0");
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).platform_plugin_needs_update();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(!result);
+}
+
+#[test]
+#[serial_test::serial]
+fn platform_plugin_needs_update_via_trait_with_codex_home_env() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(true);
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+    write_platform_manifest(dir.path(), "0.2.0");
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).platform_plugin_needs_update();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(result);
+}
+
+#[test]
+#[serial_test::serial]
+fn platform_plugin_does_not_need_update_when_current() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(true);
+    let dir = tempfile::tempdir().unwrap();
+    write_enabled_platform_plugin_config(dir.path());
+    write_platform_manifest(dir.path(), "0.4.0");
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).platform_plugin_needs_update();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(!result);
+}
+
+#[test]
+#[serial_test::serial]
+fn platform_plugin_does_not_need_update_when_not_enabled() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(true);
+    let dir = tempfile::tempdir().unwrap();
+    write_platform_manifest(dir.path(), "0.2.0");
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).platform_plugin_needs_update();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(!result);
+}
+#[test]
+#[serial_test::serial]
 fn does_not_need_update_without_codex_plugin() {
     let _guard = FeatureFlag::CodexPlugin.override_enabled(false);
     let dir = tempfile::tempdir().unwrap();
@@ -248,6 +387,19 @@ fn does_not_need_update_without_codex_plugin() {
     assert!(!result);
 }
 
+#[test]
+#[serial_test::serial]
+fn does_not_need_update_when_not_enabled() {
+    let _guard = FeatureFlag::CodexPlugin.override_enabled(true);
+    let dir = tempfile::tempdir().unwrap();
+    write_manifest(dir.path(), "0.2.0");
+
+    std::env::set_var("CODEX_HOME", dir.path());
+    let result = CodexPluginManager::new(None, None, None).needs_update();
+    std::env::remove_var("CODEX_HOME");
+
+    assert!(!result);
+}
 #[test]
 #[serial_test::serial]
 fn needs_update_via_trait_with_codex_home_env() {
@@ -264,26 +416,42 @@ fn needs_update_via_trait_with_codex_home_env() {
 }
 
 fn write_enabled_config(dir: &std::path::Path) {
+    write_enabled_plugin_config(dir, super::PLUGIN_KEY);
+}
+
+fn write_enabled_platform_plugin_config(dir: &std::path::Path) {
+    write_enabled_plugin_config(dir, super::PLATFORM_PLUGIN_KEY);
+}
+
+fn write_enabled_plugin_config(dir: &std::path::Path, plugin_key: &str) {
     fs::write(
         dir.join("config.toml"),
-        "[plugins.\"warp@codex-warp\"]\nenabled = true\n",
+        format!("[plugins.\"{plugin_key}\"]\nenabled = true\n"),
     )
     .unwrap();
 }
 
 fn write_manifest(dir: &std::path::Path, version: &str) {
+    write_plugin_manifest(dir, super::PLUGIN_NAME, version);
+}
+
+fn write_platform_manifest(dir: &std::path::Path, version: &str) {
+    write_plugin_manifest(dir, super::PLATFORM_PLUGIN_NAME, version);
+}
+
+fn write_plugin_manifest(dir: &std::path::Path, plugin_name: &str, version: &str) {
     let manifest_dir = dir
         .join("plugins")
         .join("cache")
         .join("codex-warp")
-        .join("warp")
+        .join(plugin_name)
         .join(version)
         .join(".codex-plugin");
     fs::create_dir_all(&manifest_dir).unwrap();
     fs::write(
         manifest_dir.join("plugin.json"),
         serde_json::json!({
-            "name": "warp",
+            "name": plugin_name,
             "version": version
         })
         .to_string(),

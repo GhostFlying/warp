@@ -159,6 +159,18 @@ pub(crate) trait CliAgentPluginManager: Send + Sync {
         false
     }
 
+    /// Whether the Oz platform plugin is installed.
+    /// Default returns `false` so harness setup attempts the no-op default install.
+    fn is_platform_plugin_installed(&self) -> bool {
+        false
+    }
+
+    /// Whether the Oz platform plugin version is below the minimum required.
+    /// Default returns `false` (no filesystem check).
+    fn platform_plugin_needs_update(&self) -> bool {
+        false
+    }
+
     /// Install the Warp notification plugin.
     /// Default returns an error — only agents with `can_auto_install() == true` should override.
     async fn install(&self) -> Result<(), PluginInstallError> {
@@ -205,6 +217,12 @@ pub(crate) trait CliAgentPluginManager: Send + Sync {
     /// Default is a no-op — only agents with a platform plugin should override.
     async fn install_platform_plugin(&self) -> Result<(), PluginInstallError> {
         Ok(())
+    }
+
+    /// Update the Oz platform plugin, if one exists.
+    /// Default delegates to install because most platform plugins use install as an upsert.
+    async fn update_platform_plugin(&self) -> Result<(), PluginInstallError> {
+        self.install_platform_plugin().await
     }
 }
 

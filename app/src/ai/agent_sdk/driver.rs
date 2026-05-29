@@ -2079,11 +2079,26 @@ impl AgentDriver {
         let plugin_manager: Option<Box<dyn CliAgentPluginManager>> =
             plugin_manager_for(harness.cli_agent());
         if let Some(manager) = plugin_manager {
-            if let Err(e) = manager.install().await {
-                log::warn!("Plugin installation failed (continuing): {e}");
+            if manager.can_auto_install() {
+                if manager.needs_update() {
+                    if let Err(e) = manager.update().await {
+                        log::warn!("Plugin update failed (continuing): {e}");
+                    }
+                } else if !manager.is_installed() {
+                    if let Err(e) = manager.install().await {
+                        log::warn!("Plugin installation failed (continuing): {e}");
+                    }
+                }
             }
-            if let Err(e) = manager.install_platform_plugin().await {
-                log::warn!("Platform plugin installation failed (continuing): {e}");
+
+            if manager.platform_plugin_needs_update() {
+                if let Err(e) = manager.update_platform_plugin().await {
+                    log::warn!("Platform plugin update failed (continuing): {e}");
+                }
+            } else if !manager.is_platform_plugin_installed() {
+                if let Err(e) = manager.install_platform_plugin().await {
+                    log::warn!("Platform plugin installation failed (continuing): {e}");
+                }
             }
         }
 
