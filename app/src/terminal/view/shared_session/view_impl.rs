@@ -6,7 +6,9 @@ use session_sharing_protocol::common::{
     ParticipantId, ParticipantList, ParticipantPresenceUpdate, Role, RoleRequestId,
     RoleRequestResponse, SessionId, WindowSize,
 };
-use session_sharing_protocol::sharer::{RoleUpdateReason, SessionEndedReason, SessionSourceType};
+use session_sharing_protocol::sharer::{
+    RoleUpdateReason, SessionEndedReason, SessionRetentionReason, SessionSourceType,
+};
 use session_sharing_protocol::viewer::RoleUpdatedReason;
 use settings::Setting as _;
 use warp_core::features::FeatureFlag;
@@ -662,6 +664,21 @@ impl TerminalView {
             TelemetryEvent::StoppedSharingCurrentSession { source, reason },
             ctx
         );
+    }
+    pub(crate) fn extend_shared_session_retention(
+        &mut self,
+        reason: SessionRetentionReason,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        if !self.model.lock().shared_session_status().is_active_sharer() {
+            log::warn!(
+                "Tried to extend shared session retention before sharing was active: {reason:?}"
+            );
+            return;
+        }
+
+        log::info!("Emitting request to extend shared session retention: {reason:?}");
+        ctx.emit(Event::ExtendSessionRetention { reason });
     }
 
     // TODO: why do we need to pass through input replica ID as a separate argument?

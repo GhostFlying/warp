@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use futures::channel::oneshot;
 use session_sharing_protocol::common::{Role, SessionId};
+use session_sharing_protocol::sharer::SessionRetentionReason;
 use warp_cli::share::{ShareAccessLevel, ShareRequest, ShareSubject};
 use warp_completer::completer::CommandOutput;
 use warp_core::command::ExitCode;
@@ -592,6 +593,16 @@ impl TerminalDriver {
                 }
             }
         }
+    }
+
+    pub fn extend_shared_session_retention(
+        &mut self,
+        reason: SessionRetentionReason,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.terminal_view.update(ctx, |terminal, ctx| {
+            terminal.extend_shared_session_retention(reason, ctx);
+        });
     }
 }
 
