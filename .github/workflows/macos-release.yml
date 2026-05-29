@@ -1,0 +1,107 @@
+name: Fork macOS Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fork
+
+permissions:
+  contents: write
+
+jobs:
+  linux-related-tests:
+    name: Linux related Rust tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare environment
+        uses: ./.github/actions/prepare_environment
+        with:
+          target_os: linux
+          is_self_hosted: "false"
+
+      - name: Run focused tests
+        run: cargo test -p warp --lib cli_agent_tab_color
+
+  build-macos:
+    name: Build OSS macOS DMG
+    runs-on: macos-latest
+    needs: linux-related-tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch Git LFS objects
+        run: |
+          git lfs install --local
+          git lfs pull
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          key: macos-fork-release
+          save-if: ${{ github.ref == 'refs/heads/fork' }}
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@dc19f1e48450eefe5a29b8da6c6b00a87d730b37
+        env:
+          BINSTALL_VERSION: 1.14.4
+
+      - name: Install fork release dependencies
+        run: |
+          ./script/install_channel_config || true
+          ./script/install_cargo_release_deps --no-build-deps
+          cargo install cargo-bundle \
+            --git=https://github.com/burtonageo/cargo-bundle \
+            --rev ae4c76e92c08774bf54ff077b1c52e3d1cd6c16d
+
+      - name: Install Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 20.9.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install protoc
+        uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30
+        with:
+          brew: protobuf
+
+      - name: Print Xcode version
+        run: xcodebuild -version
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build self-signed OSS DMG
+        id: bundle
+        run: script/bundle --channel oss --selfsign
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-macos-oss-dmg
+          path: ${{ steps.bundle.outputs.dmg_path }}
+          if-no-files-found: error
+
+      - name: Update rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: fork-macos-latest
+          DMG_PATH: ${{ steps.bundle.outputs.dmg_path }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            git tag -f "$TAG"
+            git push -f origin "$TAG"
+            gh release create "$TAG" \
+              --prerelease \
+              --title "Fork macOS latest" \
+              --notes "Rolling self-signed OSS macOS build for this fork."
+          fi
+
+          gh release upload "$TAG" "$DMG_PATH" --clobber

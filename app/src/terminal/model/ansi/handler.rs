@@ -18,6 +18,13 @@ use crate::terminal::model::selection::ScrollDelta;
 use crate::terminal::model::terminal_model::TmuxInstallationState;
 use crate::terminal::model::tmux::ControlModeEvent;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CLIAgentTabColorAction {
+    Running,
+    Finished,
+    Clear,
+}
+
 /// Trait to be implemented by model objects that handle pty output. The
 /// ansi::Performer (our pty output parser) delegates handling of specific
 /// actions (e.g. `set_title()`, `input()`) to a struct that implements this
@@ -406,4 +413,7 @@ pub trait Handler {
     /// - OSC 9: Simple notification with just a body (iTerm2/Windows Terminal style)
     /// - OSC 777: Notification with title and body (urxvt style)
     fn pluggable_notification(&mut self, _title: Option<String>, _body: String) {}
+
+    /// Callback for the fork-private CLI agent tab-color OSC.
+    fn cli_agent_tab_color(&mut self, _action: CLIAgentTabColorAction) {}
 }

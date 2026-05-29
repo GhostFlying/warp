@@ -25,6 +25,7 @@ struct MockHandler {
     identity_reported: bool,
     d_proto_hooks: Vec<DProtoHook>,
     pluggable_notifications: Vec<(Option<String>, String)>,
+    cli_agent_tab_color_actions: Vec<CLIAgentTabColorAction>,
     cwd_updates: Vec<String>,
 }
 
@@ -228,6 +229,10 @@ impl Handler for MockHandler {
         self.pluggable_notifications.push((title, body));
     }
 
+    fn cli_agent_tab_color(&mut self, action: CLIAgentTabColorAction) {
+        self.cli_agent_tab_color_actions.push(action);
+    }
+
     fn set_current_working_directory(&mut self, path: String) {
         self.cwd_updates.push(path);
     }
@@ -255,6 +260,7 @@ impl Default for MockHandler {
             identity_reported: false,
             d_proto_hooks: Vec::new(),
             pluggable_notifications: Vec::new(),
+            cli_agent_tab_color_actions: Vec::new(),
             cwd_updates: Vec::new(),
         }
     }
@@ -1023,6 +1029,34 @@ fn parse_osc7_empty_payload_ignored() {
     let (_, handler) = parse_bytes(bytes);
 
     assert!(handler.cwd_updates.is_empty());
+}
+
+#[test]
+fn parse_cli_agent_tab_color_osc_actions() {
+    for (payload, expected) in [
+        ("running", CLIAgentTabColorAction::Running),
+        ("finished", CLIAgentTabColorAction::Finished),
+        ("clear", CLIAgentTabColorAction::Clear),
+    ] {
+        let bytes = format!("\x1b]9281;cli-agent-tab-color;{payload}\x07").into_bytes();
+        let (_, handler) = parse_bytes(&bytes);
+
+        assert_eq!(handler.cli_agent_tab_color_actions, vec![expected]);
+    }
+}
+
+#[test]
+fn parse_cli_agent_tab_color_osc_invalid_payloads_ignored() {
+    for bytes in [
+        b"\x1b]9281;cli-agent-tab-color;blocked\x07".as_slice(),
+        b"\x1b]9281;cli-agent-tab-color;running;extra\x07".as_slice(),
+        b"\x1b]9281;wrong;running\x07".as_slice(),
+        b"\x1b]9281;running\x07".as_slice(),
+    ] {
+        let (_, handler) = parse_bytes(bytes);
+
+        assert!(handler.cli_agent_tab_color_actions.is_empty());
+    }
 }
 
 #[test]

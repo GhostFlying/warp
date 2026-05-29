@@ -1,0 +1,177 @@
+name: Promote Fork
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: promote-fork-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+env:
+  BASE_BRANCH: fork
+  ANCHOR_BRANCH: upstream-master
+  REQUIRED_CHECKS: CLI agent tab color tests
+
+jobs:
+  promote:
+    if: ${{ github.event.issue.pull_request && contains(github.event.comment.body, '/promote-fork') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate promote request
+        id: request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          COMMAND="$(printf '%s' "${COMMENT_BODY}" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [ "${COMMAND}" != "/promote-fork" ]; then
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Refusing to promote: the promote command must be exactly \`/promote-fork\`."
+            exit 1
+          fi
+
+          PERMISSION="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/collaborators/${COMMENT_AUTHOR}/permission" \
+            --jq .permission)"
+
+          case "${PERMISSION}" in
+            admin|maintain|write)
+              ;;
+            *)
+              gh pr comment "${PR_NUMBER}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --body "Refusing to promote: @${COMMENT_AUTHOR} has \`${PERMISSION}\` permission, but \`write\`, \`maintain\`, or \`admin\` is required."
+              exit 1
+              ;;
+          esac
+
+          gh pr view "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json number,state,baseRefName,headRefName,headRefOid,body \
+            > /tmp/pr.json
+
+          STATE="$(jq -r .state /tmp/pr.json)"
+          BASE_REF="$(jq -r .baseRefName /tmp/pr.json)"
+          HEAD_REF="$(jq -r .headRefName /tmp/pr.json)"
+          HEAD_SHA="$(jq -r .headRefOid /tmp/pr.json)"
+          UPSTREAM_SHA="$(jq -r '.body | capture("upstream master: `(?<sha>[0-9a-f]{40})`").sha' /tmp/pr.json)"
+
+          if [ "${STATE}" != "OPEN" ]; then
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Refusing to promote: PR #${PR_NUMBER} is ${STATE}, not OPEN."
+            exit 1
+          fi
+
+          if [ "${BASE_REF}" != "${BASE_BRANCH}" ] || [[ "${HEAD_REF}" != sync/upstream-master-* ]]; then
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Refusing to promote: expected \`sync/upstream-master-* -> ${BASE_BRANCH}\`, got \`${HEAD_REF} -> ${BASE_REF}\`."
+            exit 1
+          fi
+
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
+            --paginate \
+            --jq '.check_runs[] | {name,status,conclusion,html_url,started_at,completed_at}' \
+            > /tmp/check-runs.jsonl
+
+          MISSING_CHECKS=""
+          BAD_CHECKS=""
+          REQUIRED_CHECK="${REQUIRED_CHECKS}"
+          CHECK_JSON="$(jq -s --arg name "${REQUIRED_CHECK}" '
+            map(select(.name == $name))
+            | sort_by(.started_at // .completed_at // "")
+            | last // empty
+          ' /tmp/check-runs.jsonl)"
+
+          if [ -z "${CHECK_JSON}" ]; then
+            MISSING_CHECKS="${MISSING_CHECKS}"$'\n'"- ${REQUIRED_CHECK}: missing"
+          else
+            STATUS="$(jq -r '.status // "unknown"' <<<"${CHECK_JSON}")"
+            CONCLUSION="$(jq -r '.conclusion // ""' <<<"${CHECK_JSON}")"
+            URL="$(jq -r '.html_url // ""' <<<"${CHECK_JSON}")"
+            if [ "${STATUS}" != "completed" ] || { [ "${CONCLUSION}" != "success" ] && [ "${CONCLUSION}" != "neutral" ] && [ "${CONCLUSION}" != "skipped" ]; }; then
+              BAD_CHECKS="${BAD_CHECKS}"$'\n'"- ${REQUIRED_CHECK}: ${STATUS} ${CONCLUSION} ${URL}"
+            fi
+          fi
+
+          if [ -n "${MISSING_CHECKS}" ]; then
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Refusing to promote: required checks have not reported yet.${MISSING_CHECKS}"
+            exit 1
+          fi
+
+          if [ -n "${BAD_CHECKS}" ]; then
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Refusing to promote: required checks are not all passing yet.${BAD_CHECKS}"
+            exit 1
+          fi
+
+          echo "pr_number=${PR_NUMBER}" >> "${GITHUB_OUTPUT}"
+          echo "head_ref=${HEAD_REF}" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "upstream_sha=${UPSTREAM_SHA}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout fork branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Promote generated fork
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.request.outputs.pr_number }}
+          HEAD_REF: ${{ steps.request.outputs.head_ref }}
+          HEAD_SHA: ${{ steps.request.outputs.head_sha }}
+          UPSTREAM_SHA: ${{ steps.request.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin --force \
+            "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" \
+            "+refs/heads/${ANCHOR_BRANCH}:refs/remotes/origin/${ANCHOR_BRANCH}" \
+            "+refs/heads/${HEAD_REF}:refs/remotes/origin/${HEAD_REF}"
+
+          REMOTE_BASE_SHA="$(git rev-parse "refs/remotes/origin/${BASE_BRANCH}^{commit}")"
+          REMOTE_ANCHOR_SHA="$(git rev-parse "refs/remotes/origin/${ANCHOR_BRANCH}^{commit}")"
+          REMOTE_HEAD_SHA="$(git rev-parse "refs/remotes/origin/${HEAD_REF}^{commit}")"
+
+          if [ "${REMOTE_HEAD_SHA}" != "${HEAD_SHA}" ]; then
+            gh pr comment "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --body "Refusing to promote: \`${HEAD_REF}\` moved from \`${HEAD_SHA}\` to \`${REMOTE_HEAD_SHA}\`. Re-run the sync workflow and review the new preview."
+            exit 1
+          fi
+
+          git push --atomic \
+            --force-with-lease="refs/heads/${BASE_BRANCH}:${REMOTE_BASE_SHA}" \
+            --force-with-lease="refs/heads/${ANCHOR_BRANCH}:${REMOTE_ANCHOR_SHA}" \
+            origin \
+            "${HEAD_SHA}:refs/heads/${BASE_BRANCH}" \
+            "${UPSTREAM_SHA}:refs/heads/${ANCHOR_BRANCH}"
+
+          gh pr close "${PR_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --comment "Promoted \`${HEAD_REF}\` to \`${BASE_BRANCH}\` at \`${HEAD_SHA}\` and moved \`${ANCHOR_BRANCH}\` to upstream master \`${UPSTREAM_SHA}\`."
+
+          git push origin ":refs/heads/${HEAD_REF}" || true
+          gh workflow run "Fork macOS Release" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${BASE_BRANCH}"

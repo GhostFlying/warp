@@ -65,9 +65,9 @@ use crate::terminal::event_listener::ChannelEventListener;
 pub use crate::terminal::history::HistoryEntry;
 use crate::terminal::model::ansi;
 use crate::terminal::model::ansi::{
-    ClearValue, CommandFinishedValue, ExitShellValue, Handler, InitShellValue, InitSshValue,
-    InitSubshellValue, PreInteractiveSSHSessionValue, PrecmdValue, PreexecValue, SSHValue,
-    SourcedRcFileForWarpValue,
+    CLIAgentTabColorAction, ClearValue, CommandFinishedValue, ExitShellValue, Handler,
+    InitShellValue, InitSshValue, InitSubshellValue, PreInteractiveSSHSessionValue, PrecmdValue,
+    PreexecValue, SSHValue, SourcedRcFileForWarpValue,
 };
 use crate::terminal::model::bootstrap::BootstrapStage;
 use crate::terminal::model::completions::{
@@ -3589,6 +3589,11 @@ impl ansi::Handler for TerminalModel {
             self.event_proxy
                 .send_terminal_event(Event::PluggableNotification { title, body });
         }
+    }
+
+    fn cli_agent_tab_color(&mut self, action: CLIAgentTabColorAction) {
+        self.event_proxy
+            .send_terminal_event(Event::CLIAgentTabColor { action });
     }
 
     fn set_keyboard_enhancement_flags(

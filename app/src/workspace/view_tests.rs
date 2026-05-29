@@ -65,13 +65,17 @@ use crate::settings_view::DisplayCount;
 use crate::suggestions::ignored_suggestions_model::IgnoredSuggestionsModel;
 use crate::system::SystemStats;
 use crate::tab_configs::tab_config::{TabConfigPaneNode, TabConfigPaneType};
-use crate::terminal::cli_agent_sessions::CLIAgentSessionsModel;
+use crate::terminal::cli_agent_sessions::{
+    CLIAgentSessionStatus, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
+};
 use crate::terminal::history::History;
 use crate::terminal::keys::TerminalKeybindings;
 use crate::terminal::local_tty::spawner::PtySpawner;
+use crate::terminal::model::ansi::CLIAgentTabColorAction;
 use crate::terminal::shared_session::{
     SharedSessionScrollbackType, SharedSessionSource, SharedSessionStatus,
 };
+use crate::terminal::CLIAgent;
 use crate::test_util::settings::initialize_settings_for_tests;
 use crate::undo_close::UndoCloseSettings;
 #[cfg(feature = "local_fs")]
@@ -1028,6 +1032,182 @@ fn test_set_active_tab_color() {
             assert_eq!(
                 workspace.tabs[active].selected_color,
                 SelectedTabColor::Unset,
+            );
+        });
+    });
+}
+
+#[test]
+fn test_cli_agent_tab_color_overlay_priority_and_activation_clear() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let agent_tab = workspace.active_tab_index;
+            let terminal_view_id = workspace.tabs[agent_tab]
+                .pane_group
+                .as_ref(ctx)
+                .active_session_view(ctx)
+                .expect("agent tab has a terminal")
+                .id();
+
+            workspace.tabs[agent_tab].selected_color =
+                SelectedTabColor::Color(AnsiColorIdentifier::Blue);
+            workspace.handle_cli_agent_sessions_event(
+                &CLIAgentSessionsModelEvent::Started {
+                    terminal_view_id,
+                    agent: CLIAgent::Codex,
+                },
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[agent_tab].selected_color,
+                SelectedTabColor::Color(AnsiColorIdentifier::Blue)
+            );
+            assert_eq!(
+                workspace.tabs[agent_tab].color(),
+                Some(AnsiColorIdentifier::Yellow)
+            );
+
+            workspace.handle_cli_agent_sessions_event(
+                &CLIAgentSessionsModelEvent::StatusChanged {
+                    terminal_view_id,
+                    agent: CLIAgent::Codex,
+                    status: CLIAgentSessionStatus::Success,
+                    session_context: Default::default(),
+                },
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[agent_tab].color(),
+                Some(AnsiColorIdentifier::Green)
+            );
+
+            workspace.add_terminal_tab(false, ctx);
+            workspace.handle_action(&WorkspaceAction::ActivateTab(agent_tab), ctx);
+            assert_eq!(
+                workspace.tabs[agent_tab].color(),
+                Some(AnsiColorIdentifier::Blue)
+            );
+        });
+    });
+}
+
+#[test]
+fn test_cli_agent_tab_color_overlay_event_scope_and_restart() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let agent_tab = workspace.active_tab_index;
+            let terminal_view_id = workspace.tabs[agent_tab]
+                .pane_group
+                .as_ref(ctx)
+                .active_session_view(ctx)
+                .expect("agent tab has a terminal")
+                .id();
+
+            workspace.handle_cli_agent_sessions_event(
+                &CLIAgentSessionsModelEvent::Started {
+                    terminal_view_id,
+                    agent: CLIAgent::Gemini,
+                },
+                ctx,
+            );
+            assert_eq!(workspace.tabs[agent_tab].color(), None);
+
+            workspace.handle_cli_agent_sessions_event(
+                &CLIAgentSessionsModelEvent::Started {
+                    terminal_view_id,
+                    agent: CLIAgent::Claude,
+                },
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[agent_tab].color(),
+                Some(AnsiColorIdentifier::Yellow)
+            );
+
+            workspace.handle_cli_agent_sessions_event(
+                &CLIAgentSessionsModelEvent::Ended {
+                    terminal_view_id,
+                    agent: CLIAgent::Claude,
+                },
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[agent_tab].color(),
+                Some(AnsiColorIdentifier::Green)
+            );
+
+            workspace.handle_cli_agent_sessions_event(
+                &CLIAgentSessionsModelEvent::SessionUpdated {
+                    terminal_view_id,
+                    agent: CLIAgent::Claude,
+                },
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[agent_tab].color(),
+                Some(AnsiColorIdentifier::Yellow)
+            );
+        });
+    });
+}
+
+#[test]
+fn test_cli_agent_tab_color_osc_action_updates_current_tab_overlay() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            workspace.add_terminal_tab(false, ctx);
+            let active = workspace.active_tab_index;
+            let terminal_view_id = workspace.tabs[active]
+                .pane_group
+                .as_ref(ctx)
+                .active_session_view(ctx)
+                .expect("tab has a terminal")
+                .id();
+
+            workspace.tabs[active].selected_color =
+                SelectedTabColor::Color(AnsiColorIdentifier::Blue);
+            workspace.handle_cli_agent_tab_color_action(
+                terminal_view_id,
+                CLIAgentTabColorAction::Running,
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[active].color(),
+                Some(AnsiColorIdentifier::Yellow)
+            );
+
+            workspace.handle_cli_agent_tab_color_action(
+                terminal_view_id,
+                CLIAgentTabColorAction::Finished,
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[active].color(),
+                Some(AnsiColorIdentifier::Green)
+            );
+
+            workspace.handle_cli_agent_tab_color_action(
+                terminal_view_id,
+                CLIAgentTabColorAction::Clear,
+                ctx,
+            );
+            assert_eq!(
+                workspace.tabs[active].color(),
+                Some(AnsiColorIdentifier::Blue)
             );
         });
     });

@@ -1,0 +1,394 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "17 20 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Upstream ref to preview. Defaults to warpdotdev/warp master."
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-master
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPOSITORY: warpdotdev/warp
+  BASE_BRANCH: fork
+  ANCHOR_BRANCH: upstream-master
+
+jobs:
+  sync:
+    name: Sync upstream master
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve upstream ref
+        id: upstream
+        env:
+          INPUT_REF: ${{ inputs.upstream_ref }}
+        run: |
+          set -euo pipefail
+          REF="${INPUT_REF:-master}"
+          SAFE_REF="$(printf '%s' "${REF}" | sed 's/[^A-Za-z0-9._-]/-/g')"
+          echo "ref=${REF}" >> "${GITHUB_OUTPUT}"
+          echo "safe_ref=${SAFE_REF}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout fork branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "$(git log -1 --format=%cn HEAD)"
+          git config user.email "$(git log -1 --format=%ce HEAD)"
+
+      - name: Fetch upstream and fork refs
+        run: |
+          set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          git fetch upstream --force \
+            "+refs/heads/master:refs/remotes/upstream/master"
+          git fetch origin --force \
+            "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" \
+            "+refs/heads/${ANCHOR_BRANCH}:refs/remotes/origin/${ANCHOR_BRANCH}"
+          git fetch origin --force \
+            "+refs/heads/sync/upstream-master-*:refs/remotes/origin/sync/upstream-master-*" || true
+          git fetch origin --force \
+            "+refs/heads/sync/conflict-upstream-master-*:refs/remotes/origin/sync/conflict-upstream-master-*" || true
+
+      - name: Resolve sync state
+        id: state
+        run: |
+          set -euo pipefail
+          REF="${{ steps.upstream.outputs.ref }}"
+          if [ "${REF}" = "master" ]; then
+            UPSTREAM_SHA="$(git rev-parse refs/remotes/upstream/master^{commit})"
+          else
+            git fetch upstream --force "${REF}"
+            UPSTREAM_SHA="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
+
+          ANCHOR_SHA="$(git rev-parse "refs/remotes/origin/${ANCHOR_BRANCH}^{commit}")"
+          BASE_SHA="$(git rev-parse "refs/remotes/origin/${BASE_BRANCH}^{commit}")"
+          SHORT_SHA="$(git rev-parse --short=12 "${UPSTREAM_SHA}")"
+          BRANCH="sync/upstream-master-${{ steps.upstream.outputs.safe_ref }}-${SHORT_SHA}"
+          CONFLICT_BRANCH="sync/conflict-upstream-master-${{ steps.upstream.outputs.safe_ref }}-${SHORT_SHA}"
+
+          echo "upstream_sha=${UPSTREAM_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "anchor_sha=${ANCHOR_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "base_sha=${BASE_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "branch=${BRANCH}" >> "${GITHUB_OUTPUT}"
+          echo "conflict_branch=${CONFLICT_BRANCH}" >> "${GITHUB_OUTPUT}"
+
+          if [ "${ANCHOR_SHA}" = "${UPSTREAM_SHA}" ]; then
+            echo "already_current=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "already_current=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Close stale sync previews
+        if: ${{ steps.state.outputs.already_current != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_BRANCH: ${{ steps.state.outputs.branch }}
+          CURRENT_CONFLICT_BRANCH: ${{ steps.state.outputs.conflict_branch }}
+        run: |
+          set -euo pipefail
+          gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${BASE_BRANCH}" \
+            --state open \
+            --json number,headRefName \
+            --jq '.[] | select((.headRefName | startswith("sync/upstream-master-")) or (.headRefName | startswith("sync/conflict-upstream-master-"))) | [.number, .headRefName] | @tsv' |
+          while IFS=$'\t' read -r PR_NUMBER HEAD_BRANCH; do
+            if [ -z "${PR_NUMBER}" ] || [ "${HEAD_BRANCH}" = "${CURRENT_BRANCH}" ] || [ "${HEAD_BRANCH}" = "${CURRENT_CONFLICT_BRANCH}" ]; then
+              continue
+            fi
+            gh pr close "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --comment "Closing this preview because a newer upstream master sync attempt has superseded it."
+            git push origin ":refs/heads/${HEAD_BRANCH}" || true
+          done
+
+      - name: Replay fork patch stack
+        if: ${{ steps.state.outputs.already_current != 'true' }}
+        id: replay
+        run: |
+          set -euo pipefail
+          PATCH_STACK="/tmp/fork-patch-stack.txt"
+          git rev-list --reverse "refs/remotes/origin/${ANCHOR_BRANCH}..refs/remotes/origin/${BASE_BRANCH}" > "${PATCH_STACK}"
+          PATCH_COUNT="$(wc -l < "${PATCH_STACK}" | tr -d ' ')"
+          echo "patch_count=${PATCH_COUNT}" >> "${GITHUB_OUTPUT}"
+          echo "patch_stack=${PATCH_STACK}" >> "${GITHUB_OUTPUT}"
+
+          git checkout -B "${{ steps.state.outputs.branch }}" "${{ steps.state.outputs.upstream_sha }}"
+
+          FAILED_COMMIT=""
+          while IFS= read -r COMMIT; do
+            if [ -z "${COMMIT}" ]; then
+              continue
+            fi
+
+            echo "::group::Cherry-pick ${COMMIT}"
+            if git cherry-pick "${COMMIT}"; then
+              echo "::endgroup::"
+              continue
+            fi
+
+            if git diff --quiet && git diff --cached --quiet; then
+              git cherry-pick --skip
+              echo "::endgroup::"
+              continue
+            fi
+
+            FAILED_COMMIT="${COMMIT}"
+            CONFLICTED_FILES="$(git diff --name-only --diff-filter=U || true)"
+            git cherry-pick --abort || true
+            echo "::endgroup::"
+            break
+          done < "${PATCH_STACK}"
+
+          if [ -n "${FAILED_COMMIT}" ]; then
+            echo "result=conflict" >> "${GITHUB_OUTPUT}"
+            echo "failed_commit=${FAILED_COMMIT}" >> "${GITHUB_OUTPUT}"
+            echo "failed_subject=$(git log -1 --format=%s "${FAILED_COMMIT}")" >> "${GITHUB_OUTPUT}"
+            {
+              echo "conflicted_files<<EOF"
+              printf '%s\n' "${CONFLICTED_FILES:-}"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          echo "result=success" >> "${GITHUB_OUTPUT}"
+          echo "head_sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Create or update conflict pull request
+        if: ${{ steps.replay.outputs.result == 'conflict' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFLICT_BRANCH: ${{ steps.state.outputs.conflict_branch }}
+          UPSTREAM_SHA: ${{ steps.state.outputs.upstream_sha }}
+          ANCHOR_SHA: ${{ steps.state.outputs.anchor_sha }}
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          FAILED_COMMIT: ${{ steps.replay.outputs.failed_commit }}
+          FAILED_SUBJECT: ${{ steps.replay.outputs.failed_subject }}
+          CONFLICTED_FILES: ${{ steps.replay.outputs.conflicted_files }}
+          PATCH_STACK: ${{ steps.replay.outputs.patch_stack }}
+        run: |
+          set -euo pipefail
+
+          git checkout -B "${CONFLICT_BRANCH}" "refs/remotes/origin/${BASE_BRANCH}"
+          mkdir -p .github/upstream-sync
+
+          REPORT_FILE=".github/upstream-sync/latest-conflict.md"
+          {
+            echo "# Upstream Master Sync Conflict"
+            echo
+            echo "Automated upstream master sync failed while replaying the fork patch stack."
+            echo
+            echo "- Upstream master: \`${UPSTREAM_SHA}\`"
+            echo "- Previous upstream anchor: \`${ANCHOR_BRANCH}\` (\`${ANCHOR_SHA}\`)"
+            echo "- Current fork branch: \`${BASE_BRANCH}\` (\`${BASE_SHA}\`)"
+            echo "- Failed fork patch: \`${FAILED_COMMIT}\` ${FAILED_SUBJECT}"
+            echo
+            echo "## Conflicted Files"
+            echo
+            if [ -n "${CONFLICTED_FILES}" ]; then
+              printf '%s\n' "${CONFLICTED_FILES}" | while IFS= read -r FILE; do
+                if [ -n "${FILE}" ]; then
+                  echo "- \`${FILE}\`"
+                fi
+              done
+            else
+              echo "- The cherry-pick did not report unmerged paths."
+            fi
+            echo
+            echo "## Patch Stack"
+            echo
+            if [ -s "${PATCH_STACK}" ]; then
+              while IFS= read -r COMMIT; do
+                echo "- \`${COMMIT}\` $(git log -1 --format=%s "${COMMIT}")"
+              done < "${PATCH_STACK}"
+            else
+              echo "- No fork-only commits were found."
+            fi
+            echo
+            echo "## Manual Handling"
+            echo
+            echo "1. Create a local branch from \`${UPSTREAM_SHA}\`."
+            echo "2. Cherry-pick \`${ANCHOR_BRANCH}..${BASE_BRANCH}\` in order."
+            echo "3. Resolve conflicts and push a replacement \`${{ steps.state.outputs.branch }}\` preview branch."
+            echo "4. Keep \`${BASE_BRANCH}\` unchanged until a reviewed \`/promote-fork\` succeeds."
+          } > "${REPORT_FILE}"
+
+          git add "${REPORT_FILE}"
+          if git diff --cached --quiet; then
+            git commit --allow-empty -m "Record upstream master sync conflict"
+          else
+            git commit -m "Record upstream master sync conflict"
+          fi
+          git push --force-with-lease origin \
+            "${CONFLICT_BRANCH}:refs/heads/${CONFLICT_BRANCH}"
+
+          BODY_FILE="$(mktemp)"
+          {
+            echo "Automated upstream master sync failed while replaying the fork patch stack."
+            echo
+            echo "- Upstream master: \`${UPSTREAM_SHA}\`"
+            echo "- Previous upstream anchor: \`${ANCHOR_BRANCH}\` (\`${ANCHOR_SHA}\`)"
+            echo "- Current fork branch: \`${BASE_BRANCH}\` (\`${BASE_SHA}\`)"
+            echo "- Failed fork patch: \`${FAILED_COMMIT}\` ${FAILED_SUBJECT}"
+            echo
+            echo "Conflicted files:"
+            if [ -n "${CONFLICTED_FILES}" ]; then
+              printf '%s\n' "${CONFLICTED_FILES}" | while IFS= read -r FILE; do
+                if [ -n "${FILE}" ]; then
+                  echo "- \`${FILE}\`"
+                fi
+              done
+            else
+              echo "- The cherry-pick did not report unmerged paths."
+            fi
+            echo
+            echo "The branch also records this report at \`${REPORT_FILE}\`."
+            echo
+            echo "Patch stack:"
+            if [ -s "${PATCH_STACK}" ]; then
+              while IFS= read -r COMMIT; do
+                echo "- \`${COMMIT}\` $(git log -1 --format=%s "${COMMIT}")"
+              done < "${PATCH_STACK}"
+            else
+              echo "- No fork-only commits were found."
+            fi
+            echo
+            echo "Manual handling:"
+            echo "1. Create a local branch from \`${UPSTREAM_SHA}\`."
+            echo "2. Cherry-pick \`${ANCHOR_BRANCH}..${BASE_BRANCH}\` in order."
+            echo "3. Resolve conflicts and push a replacement \`${{ steps.state.outputs.branch }}\` preview branch."
+            echo "4. Keep \`${BASE_BRANCH}\` unchanged until a reviewed \`/promote-fork\` succeeds."
+          } > "${BODY_FILE}"
+
+          PR_NUMBER="$(gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${BASE_BRANCH}" \
+            --head "${CONFLICT_BRANCH}" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [ -n "${PR_NUMBER}" ]; then
+            gh pr edit "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "chore: resolve upstream master conflict ${UPSTREAM_SHA:0:12}" \
+              --body-file "${BODY_FILE}"
+            gh pr ready "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --undo || true
+          else
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base "${BASE_BRANCH}" \
+              --head "${CONFLICT_BRANCH}" \
+              --draft \
+              --title "chore: resolve upstream master conflict ${UPSTREAM_SHA:0:12}" \
+              --body-file "${BODY_FILE}"
+          fi
+
+      - name: Push sync branch
+        if: ${{ steps.replay.outputs.result == 'success' }}
+        run: |
+          git push --force-with-lease origin \
+            "${{ steps.state.outputs.branch }}:refs/heads/${{ steps.state.outputs.branch }}"
+
+      - name: Create or update preview pull request
+        if: ${{ steps.replay.outputs.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.state.outputs.branch }}
+          UPSTREAM_SHA: ${{ steps.state.outputs.upstream_sha }}
+          ANCHOR_SHA: ${{ steps.state.outputs.anchor_sha }}
+          BASE_SHA: ${{ steps.state.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.replay.outputs.head_sha }}
+          PATCH_COUNT: ${{ steps.replay.outputs.patch_count }}
+        run: |
+          set -euo pipefail
+          BODY_FILE="$(mktemp)"
+          {
+            echo "Clean upstream master preview for \`${UPSTREAM_SHA}\`."
+            echo
+            echo "This PR is generated from:"
+            echo "- upstream master: \`${UPSTREAM_SHA}\`"
+            echo "- previous upstream anchor: \`${ANCHOR_BRANCH}\` (\`${ANCHOR_SHA}\`)"
+            echo "- current production fork: \`${BASE_BRANCH}\` (\`${BASE_SHA}\`)"
+            echo "- replayed fork patch count: \`${PATCH_COUNT}\`"
+            echo "- generated fork head: \`${HEAD_SHA}\`"
+            echo
+            echo "Review the diff from current \`${BASE_BRANCH}\` to this generated branch."
+            echo
+            echo "**Do not use the GitHub merge button.**"
+            echo
+            echo "After reviewing the diff and checks, comment \`/promote-fork\`. The promote workflow will force-with-lease rewrite \`${BASE_BRANCH}\`, move \`${ANCHOR_BRANCH}\` to \`${UPSTREAM_SHA}\`, close this PR, and delete \`${BRANCH}\`."
+          } > "${BODY_FILE}"
+
+          PR_NUMBER="$(gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${BASE_BRANCH}" \
+            --head "${BRANCH}" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [ -n "${PR_NUMBER}" ]; then
+            gh pr edit "${PR_NUMBER}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "chore: preview upstream master ${UPSTREAM_SHA:0:12} on fork" \
+              --body-file "${BODY_FILE}"
+            gh pr ready "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --undo || true
+          else
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base "${BASE_BRANCH}" \
+              --head "${BRANCH}" \
+              --draft \
+              --title "chore: preview upstream master ${UPSTREAM_SHA:0:12} on fork" \
+              --body-file "${BODY_FILE}"
+          fi
+
+      - name: Dispatch preview checks
+        if: ${{ steps.replay.outputs.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.state.outputs.branch }}
+        run: |
+          gh workflow run "Fork CI" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${BRANCH}"
+
+      - name: Close resolved conflict previews
+        if: ${{ steps.replay.outputs.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base "${BASE_BRANCH}" \
+            --state open \
+            --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("sync/conflict-upstream-master-")) | [.number, .headRefName] | @tsv' |
+          while IFS=$'\t' read -r PR_NUMBER HEAD_BRANCH; do
+            if [ -n "${PR_NUMBER}" ]; then
+              gh pr close "${PR_NUMBER}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --comment "A clean upstream master preview was generated successfully."
+              git push origin ":refs/heads/${HEAD_BRANCH}" || true
+            fi
+          done
