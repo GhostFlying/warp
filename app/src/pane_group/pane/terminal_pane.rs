@@ -1063,6 +1063,14 @@ fn handle_terminal_view_event(
                     pane_id: Some(pane_id),
                 })
             }
+            Event::CLIAgentTabColor { action } => {
+                if let Some(terminal_view) = group.terminal_view_from_pane_id(pane_id, ctx) {
+                    ctx.emit(pane_group::Event::CLIAgentTabColor {
+                        terminal_view_id: terminal_view.id(),
+                        action: *action,
+                    });
+                }
+            }
             Event::AppStateChanged => {
                 ctx.emit(pane_group::Event::AppStateChanged);
             }

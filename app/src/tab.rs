@@ -103,6 +103,22 @@ impl SelectedTabColor {
     }
 }
 
+/// Transient tab-color overlay for fork-local CLI agent status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabColorOverlay {
+    AgentRunning,
+    AgentFinished,
+}
+
+impl TabColorOverlay {
+    pub(crate) fn color(self) -> AnsiColorIdentifier {
+        match self {
+            Self::AgentRunning => AnsiColorIdentifier::Yellow,
+            Self::AgentFinished => AnsiColorIdentifier::Green,
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
 pub enum TabTelemetryAction {
@@ -145,6 +161,8 @@ pub struct TabData {
     pub default_directory_color: Option<AnsiColorIdentifier>,
     /// Color chosen manually by the user (e.g. right-click menu).
     pub selected_color: SelectedTabColor,
+    /// Runtime-only agent status color. This is not persisted.
+    pub color_overlay: Option<TabColorOverlay>,
     pub indicator_hover_state: MouseStateHandle,
     // Used by a later drag-tab branch to distinguish tabs that have moved into detached windows.
     pub detached: bool,
@@ -165,15 +183,19 @@ impl TabData {
             draggable_state: Default::default(),
             default_directory_color: None,
             selected_color: SelectedTabColor::Unset,
+            color_overlay: None,
             indicator_hover_state: Default::default(),
             detached: false,
             group_id: None,
         }
     }
 
-    /// The resolved tab color: manual selection takes priority over directory default.
+    /// The resolved tab color: transient overlays take priority over manual
+    /// selection, which takes priority over directory default.
     pub fn color(&self) -> Option<AnsiColorIdentifier> {
-        self.selected_color.resolve(self.default_directory_color)
+        self.color_overlay
+            .map(TabColorOverlay::color)
+            .or_else(|| self.selected_color.resolve(self.default_directory_color))
     }
 
     /// Returns the menu items for the context menu on right mouse click.

@@ -9,7 +9,9 @@ use instant::Instant;
 pub use remote_server::setup::RemoteServerSetupState;
 
 use super::history::HistoryEntry;
-use super::model::ansi::{FinishUpdateValue, WarpificationUnavailableReason};
+use super::model::ansi::{
+    CLIAgentTabColorAction, FinishUpdateValue, WarpificationUnavailableReason,
+};
 use super::model::block::BlockId;
 use super::model::session::{SessionId, SessionInfo};
 use super::model::terminal_model::{BlockIndex, ExitReason, TmuxInstallationState};
@@ -152,6 +154,10 @@ pub enum Event {
     PluggableNotification {
         title: Option<String>,
         body: String,
+    },
+    /// Fork-private OSC used by wrappers/debugging to set a transient tab color.
+    CLIAgentTabColor {
+        action: CLIAgentTabColorAction,
     },
 }
 
@@ -513,6 +519,9 @@ impl Debug for Event {
             Event::BootstrapPrecmdDone => write!(f, "BootstrapPrecmdDone"),
             Event::PluggableNotification { title, body } => {
                 write!(f, "PluggableNotification(title: {title:?}, body: {body})")
+            }
+            Event::CLIAgentTabColor { action } => {
+                write!(f, "CLIAgentTabColor(action: {action:?})")
             }
             Event::ExitShell { session_id } => {
                 write!(f, "ExitShell(session: {session_id:?})")

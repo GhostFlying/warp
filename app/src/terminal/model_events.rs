@@ -6,7 +6,9 @@ use warpui::{Entity, ModelContext, ModelHandle, SingletonEntity};
 
 use super::event::{BootstrappedEvent, SshLoginStatus};
 use super::model::ansi;
-use super::model::ansi::{FinishUpdateValue, WarpificationUnavailableReason};
+use super::model::ansi::{
+    CLIAgentTabColorAction, FinishUpdateValue, WarpificationUnavailableReason,
+};
 use super::model::block::BlockId;
 use super::model::completions::ShellCompletion;
 use super::model::session::{IsLegacySSHSession, SessionId, SessionInfo};
@@ -295,6 +297,7 @@ impl ModelEventDispatcher {
             Event::PluggableNotification { title, body } => {
                 ModelEvent::PluggableNotification { title, body }
             }
+            Event::CLIAgentTabColor { action } => ModelEvent::CLIAgentTabColor { action },
             Event::ExitShell { session_id } => ModelEvent::ExitShell { session_id },
             _ => return,
         };
@@ -480,6 +483,10 @@ pub enum ModelEvent {
     PluggableNotification {
         title: Option<String>,
         body: String,
+    },
+    /// Fork-private OSC used by wrappers/debugging to set a transient tab color.
+    CLIAgentTabColor {
+        action: CLIAgentTabColorAction,
     },
     /// Emitted when an SSH session's `InitShell` is intercepted by the
     /// `SshRemoteServer` feature flag. `RemoteServerController` subscribes to

@@ -514,6 +514,11 @@ pub enum Event {
     /// Event used to propagate a state change for one of the terminal views
     /// inside this pane group.
     TerminalViewStateChanged,
+    /// Fork-private OSC requested a transient tab color for this terminal view.
+    CLIAgentTabColor {
+        terminal_view_id: EntityId,
+        action: crate::terminal::model::ansi::CLIAgentTabColorAction,
+    },
     /// Event used to propagate guided onboarding tutorial completion to the workspace.
     OnboardingTutorialCompleted,
     // Tell the workspace to open the workflow modal.

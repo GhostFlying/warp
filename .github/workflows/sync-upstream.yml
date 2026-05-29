@@ -1,0 +1,113 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "17 20 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Sync upstream master
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/warpdotdev/warp.git
+          git fetch upstream master
+          git fetch origin master
+
+      - name: Create sync branch
+        id: branch
+        run: |
+          branch="sync/upstream-master-$(date -u +%Y%m%d)"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+          git switch -C "$branch" origin/master
+
+      - name: Merge upstream
+        id: merge
+        continue-on-error: true
+        run: git merge --no-edit upstream/master
+
+      - name: Record conflict report
+        if: steps.merge.outcome != 'success'
+        run: |
+          conflicted="$(git diff --name-only --diff-filter=U || true)"
+          git merge --abort || true
+          mkdir -p .github/upstream-sync
+          {
+            echo "# Upstream sync conflict"
+            echo
+            echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo "The scheduled merge of upstream master into this fork conflicted."
+            echo
+            echo "Conflicted files from the attempted merge:"
+            echo
+            if [ -n "$conflicted" ]; then
+              printf '%s\n' "$conflicted" | sed 's/^/- /'
+            else
+              echo "- Conflict list unavailable; inspect the workflow logs."
+            fi
+          } > .github/upstream-sync/latest-conflict.md
+          git add .github/upstream-sync/latest-conflict.md
+          git commit -m "Record upstream sync conflict"
+
+      - name: Push sync branch
+        run: git push --force-with-lease origin "${{ steps.branch.outputs.name }}"
+
+      - name: Check sync diff
+        id: sync_diff
+        run: |
+          if git diff --quiet origin/master..."${{ steps.branch.outputs.name }}"; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open pull request
+        if: steps.sync_diff.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+        run: |
+          title="Sync upstream master $(date -u +%Y-%m-%d)"
+          if [ "$MERGE_OUTCOME" != "success" ]; then
+            title="Upstream sync conflict $(date -u +%Y-%m-%d)"
+          fi
+
+          existing="$(gh pr list --head "$BRANCH" --base master --json number --jq '.[0].number')"
+          if [ -z "$existing" ]; then
+            gh pr create \
+              --base master \
+              --head "$BRANCH" \
+              --title "$title" \
+              --body "Automated fork sync with https://github.com/warpdotdev/warp master."
+          fi
+
+      - name: Enable auto-merge
+        if: steps.merge.outcome == 'success' && steps.sync_diff.outputs.has_changes == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          pr="$(gh pr list --head "$BRANCH" --base master --json number --jq '.[0].number')"
+          if [ -n "$pr" ]; then
+            gh pr merge "$pr" --auto --merge
+          fi

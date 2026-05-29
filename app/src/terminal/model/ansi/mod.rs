@@ -81,6 +81,8 @@ const WARP_COMPLETIONS_OSC_MARKER: &[u8] = b"9280";
 const WARP_COMPLETIONS_START_BYTE: &[u8] = b"A";
 const WARP_COMPLETIONS_END_BYTE: &[u8] = b"B";
 const WARP_COMPLETIONS_MATCH_RESULT_BYTE: &[u8] = b"C";
+const WARP_CLI_AGENT_TAB_COLOR_OSC_MARKER: &[u8] = b"9281";
+const WARP_CLI_AGENT_TAB_COLOR_COMMAND: &[u8] = b"cli-agent-tab-color";
 
 /// Denotes an OSC that sends metadata about the last match result.
 /// The sequence begins with `D?` followed by the field that should be updated.
@@ -1287,6 +1289,20 @@ where
                     log::warn!("Received a Warp OSC completions marker missing required param.");
                 }
             },
+
+            WARP_CLI_AGENT_TAB_COLOR_OSC_MARKER => {
+                if params.len() != 3 || params[1] != WARP_CLI_AGENT_TAB_COLOR_COMMAND {
+                    return;
+                }
+
+                let action = match params[2] {
+                    b"running" => CLIAgentTabColorAction::Running,
+                    b"finished" => CLIAgentTabColorAction::Finished,
+                    b"clear" => CLIAgentTabColorAction::Clear,
+                    _ => return,
+                };
+                self.handler.cli_agent_tab_color(action);
+            }
 
             // This is a totally random OSC identifier to test how often we parse unexpected OSCs.
             b"781378" => {

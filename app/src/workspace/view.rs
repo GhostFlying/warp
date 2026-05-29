@@ -338,7 +338,7 @@ use crate::settings_view::{flags, SettingsSection, SettingsView, SettingsViewEve
 use crate::shell_indicator::ShellIndicatorType;
 use crate::tab::{
     tab_position_id, uses_vertical_tabs, NewSessionMenuItem, PaneNameMenuTarget, SelectedTabColor,
-    TabBarState, TabComponent, TabData, TabTelemetryAction, TAB_BAR_BORDER_HEIGHT,
+    TabBarState, TabColorOverlay, TabComponent, TabData, TabTelemetryAction, TAB_BAR_BORDER_HEIGHT,
 };
 use crate::tab_configs::action_sidecar::SidecarItemKind;
 use crate::tab_configs::remove_confirmation_dialog::{
@@ -360,7 +360,9 @@ use crate::terminal::available_shells::AvailableShells;
 use crate::terminal::block_list_viewport::InputMode;
 #[cfg(not(target_family = "wasm"))]
 use crate::terminal::cli_agent_sessions::plugin_manager::{plugin_manager_for, PluginModalKind};
-use crate::terminal::cli_agent_sessions::{CLIAgentSessionsModel, CLIAgentSessionsModelEvent};
+use crate::terminal::cli_agent_sessions::{
+    CLIAgentSessionStatus, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
+};
 use crate::terminal::enable_auto_reload_modal::{
     EnableAutoReloadModal, EnableAutoReloadModalEvent,
 };
@@ -370,6 +372,7 @@ use crate::terminal::keys_settings::KeysSettings;
 use crate::terminal::ligature_settings::should_use_ligature_rendering;
 #[cfg(feature = "local_tty")]
 use crate::terminal::local_tty::docker_sandbox::resolve_sbx_path_from_user_shell;
+use crate::terminal::model::ansi::CLIAgentTabColorAction;
 use crate::terminal::model::blockgrid::BlockGrid;
 #[cfg(feature = "local_fs")]
 use crate::terminal::model::session::Session;
@@ -404,7 +407,7 @@ use crate::terminal::view::{
     NOTIFICATIONS_TROUBLESHOOT_URL,
 };
 use crate::terminal::warpify::settings::WarpifySettings;
-use crate::terminal::{self, BlockListSettings, SizeInfo, TerminalModel, TerminalView};
+use crate::terminal::{self, BlockListSettings, CLIAgent, SizeInfo, TerminalModel, TerminalView};
 use crate::themes::theme::{AnsiColorIdentifier, RespectSystemTheme, ThemeKind};
 use crate::themes::theme_chooser::{ThemeChooser, ThemeChooserEvent, ThemeChooserMode};
 use crate::themes::theme_creator_modal::{ThemeCreatorModal, ThemeCreatorModalEvent};
@@ -917,6 +920,7 @@ enum PendingSessionConfigTabConfigChipTutorial {
 pub struct TransferredTab {
     pub pane_group: ViewHandle<PaneGroup>,
     pub color: Option<AnsiColorIdentifier>,
+    pub color_overlay: Option<TabColorOverlay>,
     pub custom_title: Option<String>,
     pub left_panel_open: bool,
     pub vertical_tabs_panel_open: bool,
@@ -3410,16 +3414,88 @@ impl Workspace {
         event: &CLIAgentSessionsModelEvent,
         ctx: &mut ViewContext<Self>,
     ) {
-        if matches!(
+        let terminal_view_id = event.terminal_view_id();
+        if !self.workspace_contains_terminal_view(terminal_view_id, ctx) {
+            return;
+        }
+
+        if let Some(overlay) = Self::cli_agent_tab_color_overlay_for_event(event) {
+            self.set_tab_color_overlay_for_terminal_view(terminal_view_id, Some(overlay), ctx);
+        } else if matches!(
             event,
             CLIAgentSessionsModelEvent::Started { .. }
                 | CLIAgentSessionsModelEvent::StatusChanged { .. }
                 | CLIAgentSessionsModelEvent::Ended { .. }
                 | CLIAgentSessionsModelEvent::SessionUpdated { .. }
-        ) && self.workspace_contains_terminal_view(event.terminal_view_id(), ctx)
-        {
+        ) {
             ctx.notify();
         }
+    }
+
+    fn cli_agent_tab_color_overlay_for_event(
+        event: &CLIAgentSessionsModelEvent,
+    ) -> Option<TabColorOverlay> {
+        let agent = match event {
+            CLIAgentSessionsModelEvent::Started { agent, .. }
+            | CLIAgentSessionsModelEvent::StatusChanged { agent, .. }
+            | CLIAgentSessionsModelEvent::Ended { agent, .. }
+            | CLIAgentSessionsModelEvent::SessionUpdated { agent, .. } => *agent,
+            CLIAgentSessionsModelEvent::InputSessionChanged { .. } => return None,
+        };
+
+        if !matches!(agent, CLIAgent::Codex | CLIAgent::Claude) {
+            return None;
+        }
+
+        match event {
+            CLIAgentSessionsModelEvent::Started { .. }
+            | CLIAgentSessionsModelEvent::SessionUpdated { .. } => {
+                Some(TabColorOverlay::AgentRunning)
+            }
+            CLIAgentSessionsModelEvent::StatusChanged { status, .. } => match status {
+                CLIAgentSessionStatus::InProgress => Some(TabColorOverlay::AgentRunning),
+                CLIAgentSessionStatus::Success => Some(TabColorOverlay::AgentFinished),
+                CLIAgentSessionStatus::Blocked { .. } => None,
+            },
+            CLIAgentSessionsModelEvent::Ended { .. } => Some(TabColorOverlay::AgentFinished),
+            CLIAgentSessionsModelEvent::InputSessionChanged { .. } => None,
+        }
+    }
+
+    fn set_tab_color_overlay_for_terminal_view(
+        &mut self,
+        terminal_view_id: EntityId,
+        overlay: Option<TabColorOverlay>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let Some(tab) = self.tabs.iter_mut().find(|tab| {
+            tab.pane_group
+                .as_ref(ctx)
+                .contains_terminal_view(terminal_view_id, ctx)
+        }) else {
+            return;
+        };
+
+        if tab.color_overlay == overlay {
+            return;
+        }
+
+        tab.color_overlay = overlay;
+        ctx.notify();
+    }
+
+    fn handle_cli_agent_tab_color_action(
+        &mut self,
+        terminal_view_id: EntityId,
+        action: CLIAgentTabColorAction,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        let overlay = match action {
+            CLIAgentTabColorAction::Running => Some(TabColorOverlay::AgentRunning),
+            CLIAgentTabColorAction::Finished => Some(TabColorOverlay::AgentFinished),
+            CLIAgentTabColorAction::Clear => None,
+        };
+        self.set_tab_color_overlay_for_terminal_view(terminal_view_id, overlay, ctx);
     }
 
     /// Handle session settings changes.
@@ -5052,7 +5128,11 @@ impl Workspace {
 
         self.active_tab_index = index;
 
-        if let Some(tab) = self.tabs.get(index) {
+        if let Some(tab) = self.tabs.get_mut(index) {
+            if matches!(tab.color_overlay, Some(TabColorOverlay::AgentFinished)) {
+                tab.color_overlay = None;
+            }
+
             let pane_group_id = tab.pane_group.id();
             self.tab_mru_order.retain(|id| *id != pane_group_id);
             self.tab_mru_order.insert(0, pane_group_id);
@@ -14254,6 +14334,12 @@ impl Workspace {
             pane_group::Event::TerminalViewStateChanged => {
                 self.update_active_session(ctx);
                 ctx.notify();
+            }
+            pane_group::Event::CLIAgentTabColor {
+                terminal_view_id,
+                action,
+            } => {
+                self.handle_cli_agent_tab_color_action(*terminal_view_id, *action, ctx);
             }
             pane_group::Event::OnboardingTutorialCompleted => {
                 self.pending_session_config_tab_config_chip = false;
@@ -24775,7 +24861,8 @@ impl Workspace {
     fn tab_transfer_info_at_index(&self, index: usize, ctx: &AppContext) -> Option<TransferredTab> {
         let tab = self.tabs.get(index)?;
         let pane_group = tab.pane_group.clone();
-        let color = tab.color();
+        let color = tab.selected_color.resolve(tab.default_directory_color);
+        let color_overlay = tab.color_overlay;
         let draggable_state = tab.draggable_state.clone();
         let custom_title = pane_group.read(ctx, |pg, ctx| pg.custom_title(ctx));
         let left_panel_open = pane_group.read(ctx, |pg, _| pg.left_panel_open);
@@ -24786,6 +24873,7 @@ impl Workspace {
         Some(TransferredTab {
             pane_group,
             color,
+            color_overlay,
             custom_title,
             left_panel_open,
             right_panel_open,
@@ -24842,6 +24930,7 @@ impl Workspace {
         let TransferredTab {
             pane_group,
             color,
+            color_overlay,
             draggable_state,
             ..
         } = transferred_tab;
@@ -24852,6 +24941,7 @@ impl Workspace {
         let index = insertion_index.min(self.tabs.len());
         let mut tab_data = TabData::new(pane_group);
         tab_data.selected_color = color.map_or(SelectedTabColor::Unset, SelectedTabColor::Color);
+        tab_data.color_overlay = color_overlay;
         tab_data.draggable_state = draggable_state;
         self.tabs.insert(index, tab_data);
         self.activate_tab_internal(index, ctx);

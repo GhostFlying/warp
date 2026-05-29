@@ -1956,6 +1956,10 @@ pub enum Event {
         title: Option<String>,
         body: String,
     },
+    /// Fork-private OSC used by wrappers/debugging to set a transient tab color.
+    CLIAgentTabColor {
+        action: crate::terminal::model::ansi::CLIAgentTabColorAction,
+    },
     /// Emitted when cloud mode runs should display the cloud-agent capacity/credits modal.
     ShowCloudAgentCapacityModal {
         variant: CloudAgentCapacityModalVariant,
@@ -12502,6 +12506,9 @@ impl TerminalView {
                         body: body.clone(),
                     });
                 }
+            }
+            ModelEvent::CLIAgentTabColor { action } => {
+                ctx.emit(Event::CLIAgentTabColor { action: *action });
             }
             ModelEvent::ExitShell { session_id } => {
                 // Drop the remote server client for this session before the
