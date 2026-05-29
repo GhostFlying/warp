@@ -2823,6 +2823,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloud_object_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "async-trait",
+ "chrono",
+ "cloud_object_models",
+ "cloud_objects",
+ "mockall",
+ "serde",
+ "serde_json",
+ "uuid",
+ "warp_core",
+ "warp_graphql",
+]
+
+[[package]]
+name = "cloud_object_models"
+version = "0.1.0"
+dependencies = [
+ "ai",
+ "anyhow",
+ "cfg-if",
+ "chrono",
+ "cloud_objects",
+ "handlebars",
+ "lazy_static",
+ "log",
+ "regex",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_regex",
+ "session-sharing-protocol",
+ "settings",
+ "settings_value",
+ "uuid",
+ "warp-workflows",
+ "warp_cli",
+ "warp_core",
+ "warp_graphql",
+ "warp_util",
+]
+
+[[package]]
 name = "cloud_objects"
 version = "0.1.0"
 dependencies = [
@@ -3077,7 +3123,6 @@ dependencies = [
  "clap",
  "command",
  "computer_use",
- "core-foundation 0.10.1",
  "dispatch2",
  "futures",
  "image",
@@ -14358,6 +14403,8 @@ dependencies = [
  "channel_versions",
  "chrono",
  "clap",
+ "cloud_object_client",
+ "cloud_object_models",
  "cloud_objects",
  "cocoa 0.26.0",
  "comfy-table",
@@ -14460,6 +14507,9 @@ dependencies = [
  "num_cpus",
  "oauth2",
  "objc",
+ "objc2 0.6.3",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "onboarding",
  "once_cell",
@@ -14722,7 +14772,6 @@ dependencies = [
  "async-broadcast",
  "cfg-if",
  "chrono",
- "cocoa 0.26.0",
  "command-corrections",
  "concat-idents",
  "dashmap",
@@ -14740,7 +14789,6 @@ dependencies = [
  "line-ending",
  "log",
  "mockito",
- "objc",
  "objc2-foundation 0.3.2",
  "parking_lot",
  "pin-project",
@@ -15028,6 +15076,8 @@ dependencies = [
  "anyhow",
  "bincode",
  "chrono",
+ "cloud_object_client",
+ "cloud_object_models",
  "cloud_objects",
  "cynic",
  "derivative",
@@ -15180,6 +15230,9 @@ dependencies = [
  "notify-rust",
  "num-traits",
  "objc",
+ "objc2 0.6.3",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "open",
  "ordered-float 3.9.2",
  "owned_ttf_parser",
@@ -15299,10 +15352,10 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-channel",
- "cocoa 0.26.0",
  "gloo-storage",
  "log",
- "objc",
+ "objc2 0.6.3",
+ "objc2-foundation 0.3.2",
  "ouroboros",
  "rand 0.8.6",
  "ring",

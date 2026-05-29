@@ -26,8 +26,6 @@ use onboarding::callout::{FinalState, OnboardingCalloutViewEvent, OnboardingQuer
 use onboarding::{OnboardingCalloutView, OnboardingKeybindings};
 
 use crate::ai::block_context::BlockContext;
-#[cfg(feature = "local_fs")]
-use crate::ai::skills::SkillOpenOrigin;
 use crate::global_resource_handles::GlobalResourceHandlesProvider;
 pub(crate) mod docker_sandbox;
 mod link_detection;
@@ -335,7 +333,7 @@ use crate::editor::{AutosuggestionType, CrdtOperation, EditorAction};
 use crate::env_vars::env_var_collection_block::{
     EnvVarCollectionBlock, EnvVarCollectionBlockEvent,
 };
-use crate::env_vars::{CloudEnvVarCollection, EnvVar};
+use crate::env_vars::{CloudEnvVarCollection, EnvVar, EnvVarExt};
 use crate::features::FeatureFlag;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::PaneFocusHandle;
@@ -432,6 +430,7 @@ use crate::terminal::links::should_directly_open_link;
 use crate::terminal::local_tty::get_shell_starter;
 #[cfg(feature = "local_tty")]
 use crate::terminal::local_tty::shell::ShellStarter;
+#[cfg(feature = "local_tty")]
 #[cfg(all(windows, feature = "local_tty"))]
 use crate::terminal::local_tty::windows::get_user_and_system_env_variable;
 use crate::terminal::model::ansi::{ClearMode, Handler};
@@ -26599,7 +26598,7 @@ impl TypedActionView for TerminalView {
                                 source: CodeSource::Skill {
                                     reference: skill_reference.clone(),
                                     path: path.clone(),
-                                    origin: SkillOpenOrigin::OpenSkillCommand,
+                                    origin: crate::ai::skills::SkillOpenOrigin::OpenSkillCommand,
                                 },
                                 layout:
                                     *crate::util::file::external_editor::EditorSettings::as_ref(ctx)
@@ -26869,10 +26868,11 @@ impl View for TerminalView {
                         .with_constrain_absolute_children()
                         .with_child(column.finish())
                 } else {
-                    let output_area = if (model.shared_session_status().is_view_pending()
-                        && !self.is_ambient_agent_session(app))
-                        || model.is_loading_conversation_transcript()
-                    {
+                    let is_view_pending_clause = model.shared_session_status().is_view_pending()
+                        && !self.is_ambient_agent_session(app);
+                    let is_loading_transcript = model.is_loading_conversation_transcript();
+                    let should_show_loading = is_view_pending_clause || is_loading_transcript;
+                    let output_area = if should_show_loading {
                         self.render_viewer_loading(app)
                     } else if is_alt_screen_active {
                         did_wrap_terminal_size = true;

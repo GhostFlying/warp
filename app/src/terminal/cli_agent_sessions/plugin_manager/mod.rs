@@ -159,15 +159,23 @@ pub(crate) trait CliAgentPluginManager: Send + Sync {
         false
     }
 
-    /// Whether the Oz platform plugin is installed.
-    /// Default returns `false` so harness setup attempts the no-op default install.
+    /// Whether this agent's Oz platform plugin is already installed.
+    /// Default returns `true` because most agents do not have a platform plugin.
     fn is_platform_plugin_installed(&self) -> bool {
+        true
+    }
+
+    /// Whether this agent's Oz platform plugin is below the minimum required version.
+    /// Default returns `false` because most agents do not have a platform plugin.
+    fn platform_plugin_needs_update(&self) -> bool {
         false
     }
 
-    /// Whether the Oz platform plugin version is below the minimum required.
-    /// Default returns `false` (no filesystem check).
-    fn platform_plugin_needs_update(&self) -> bool {
+    /// Whether the agent's plugin marketplace is currently overridden to a
+    /// local filesystem path. This is used by local test flows to avoid
+    /// clobbering a developer's marketplace override while still preserving
+    /// normal install/update behavior in staging and production.
+    fn has_local_marketplace_override(&self) -> bool {
         false
     }
 
@@ -219,8 +227,9 @@ pub(crate) trait CliAgentPluginManager: Send + Sync {
         Ok(())
     }
 
-    /// Update the Oz platform plugin, if one exists.
-    /// Default delegates to install because most platform plugins use install as an upsert.
+    /// Update the Oz platform plugin for this CLI agent, if one exists.
+    /// Default reuses the install path because most agents do not have a
+    /// platform plugin or need distinct update behavior.
     async fn update_platform_plugin(&self) -> Result<(), PluginInstallError> {
         self.install_platform_plugin().await
     }
@@ -231,6 +240,7 @@ pub(crate) trait CliAgentPluginManager: Send + Sync {
 pub(crate) fn plugin_manager_for(agent: CLIAgent) -> Option<Box<dyn CliAgentPluginManager>> {
     plugin_manager_for_with_shell(agent, None, None, None)
 }
+
 /// Returns a plugin manager for the given CLI agent, or `None` if the agent
 /// doesn't have Warp notification plugin support.
 ///
