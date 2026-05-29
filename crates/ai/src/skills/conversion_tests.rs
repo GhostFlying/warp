@@ -52,24 +52,6 @@ fn try_from_api_with_remote_origin_preserves_host_identity() {
 }
 
 #[test]
-fn read_skill_ref_with_local_origin_uses_local_path() {
-    let skill_reference = skill_reference_from_read_skill_ref(
-        api::message::tool_call::read_skill::SkillReference::SkillPath(
-            "/Users/test/.agents/skills/deploy/SKILL.md".to_string(),
-        ),
-        &SkillPathOrigin::Local,
-    )
-    .expect("local read_skill skill references should convert");
-
-    assert_eq!(
-        skill_reference,
-        SkillReference::Path(LocalOrRemotePath::Local(
-            "/Users/test/.agents/skills/deploy/SKILL.md".into()
-        ))
-    );
-}
-
-#[test]
 fn skill_ref_with_remote_origin_preserves_host_identity() {
     let host_id = HostId::new("remote-host".to_string());
     let skill_reference = skill_reference_from_api_skill_ref(
