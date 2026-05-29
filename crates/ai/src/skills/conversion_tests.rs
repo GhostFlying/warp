@@ -8,7 +8,7 @@ use super::{
     skill_reference_from_api_skill_ref, skill_reference_from_read_skill_ref, SkillConversionError,
     SkillPathOrigin,
 };
-use crate::skills::{encode_api_path_reference, ParsedSkill, SkillReference};
+use crate::skills::{ParsedSkill, SkillProvider, SkillReference, SkillScope};
 
 fn api_project_skill(path: &str) -> api::Skill {
     api::Skill {
@@ -52,82 +52,85 @@ fn try_from_api_with_remote_origin_preserves_host_identity() {
 }
 
 #[test]
-fn encoded_local_read_skill_ref_ignores_remote_session_origin() {
-    let local_path = LocalOrRemotePath::Local("/Users/test/.agents/skills/deploy/SKILL.md".into());
+fn read_skill_ref_with_local_origin_uses_local_path() {
     let skill_reference = skill_reference_from_read_skill_ref(
-        api::message::tool_call::read_skill::SkillReference::SkillPath(encode_api_path_reference(
-            &local_path,
-        )),
-        &SkillPathOrigin::Remote {
-            host_id: HostId::new("remote-host".to_string()),
-        },
+        api::message::tool_call::read_skill::SkillReference::SkillPath(
+            "/Users/test/.agents/skills/deploy/SKILL.md".to_string(),
+        ),
+        &SkillPathOrigin::Local,
     )
-    .expect("encoded local references should preserve their identity");
+    .expect("local read_skill skill references should convert");
 
-    assert_eq!(skill_reference, SkillReference::Path(local_path));
+    assert_eq!(
+        skill_reference,
+        SkillReference::Path(LocalOrRemotePath::Local(
+            "/Users/test/.agents/skills/deploy/SKILL.md".into()
+        ))
+    );
 }
 
 #[test]
-fn encoded_remote_refs_preserve_host_when_display_paths_collide() {
-    let first_path = LocalOrRemotePath::Remote(RemotePath::new(
-        HostId::new("first-host".to_string()),
-        StandardizedPath::try_new("/repo/.agents/skills/deploy/SKILL.md").unwrap(),
-    ));
-    let second_path = LocalOrRemotePath::Remote(RemotePath::new(
-        HostId::new("second-host".to_string()),
-        StandardizedPath::try_new("/repo/.agents/skills/deploy/SKILL.md").unwrap(),
-    ));
+fn skill_ref_with_remote_origin_preserves_host_identity() {
+    let host_id = HostId::new("remote-host".to_string());
+    let skill_reference = skill_reference_from_api_skill_ref(
+        api::SkillRef {
+            skill_reference: Some(api::skill_ref::SkillReference::Path(
+                "/repo/.agents/skills/deploy/SKILL.md".to_string(),
+            )),
+        },
+        &SkillPathOrigin::Remote {
+            host_id: host_id.clone(),
+        },
+    );
 
-    for expected in [first_path, second_path] {
-        let reference = skill_reference_from_api_skill_ref(
-            api::SkillRef {
-                skill_reference: Some(api::skill_ref::SkillReference::Path(
-                    encode_api_path_reference(&expected),
-                )),
-            },
-            &SkillPathOrigin::Local,
-        );
-        assert_eq!(reference, Some(SkillReference::Path(expected)));
-    }
+    let Some(SkillReference::Path(LocalOrRemotePath::Remote(path))) = skill_reference else {
+        panic!("expected a remote skill path");
+    };
+    assert_eq!(path.host_id, host_id);
+    assert_eq!(path.path.as_str(), "/repo/.agents/skills/deploy/SKILL.md");
 }
 
 #[test]
-fn parsed_skill_api_roundtrip_preserves_encoded_remote_origin_without_ambient_origin() {
-    let expected_path = LocalOrRemotePath::Remote(RemotePath::new(
+fn parsed_skill_api_conversion_emits_plain_path_reference() {
+    let skill_path = LocalOrRemotePath::Remote(RemotePath::new(
         HostId::new("remote-host".to_string()),
         StandardizedPath::try_new("/repo/.agents/skills/deploy/SKILL.md").unwrap(),
     ));
-    let expected = ParsedSkill {
-        path: expected_path.clone(),
+    let api_skill: api::Skill = ParsedSkill {
+        path: skill_path.clone(),
         name: "deploy".to_string(),
         description: "Deploy the service".to_string(),
         content: "# Deploy".to_string(),
         line_range: None,
-        scope: crate::skills::SkillScope::Project,
-        provider: crate::skills::SkillProvider::Agents,
-    };
+        scope: SkillScope::Project,
+        provider: SkillProvider::Agents,
+    }
+    .into();
 
-    let parsed =
-        ParsedSkill::try_from_api_with_origin(expected.into(), &SkillPathOrigin::Unavailable)
-            .expect("encoded API descriptors should not need ambient path origin");
-
-    assert_eq!(parsed.path, expected_path);
+    let descriptor = api_skill
+        .descriptor
+        .expect("converted skill should have descriptor");
+    assert_eq!(
+        descriptor.skill_reference,
+        Some(api::skill_descriptor::SkillReference::Path(
+            skill_path.display_path()
+        ))
+    );
 }
 
 #[test]
-fn invalid_encoded_read_skill_ref_does_not_fall_back_to_session_origin() {
-    let error = skill_reference_from_read_skill_ref(
-        api::message::tool_call::read_skill::SkillReference::SkillPath(
-            "warp-skill-location:v1:not-json".to_string(),
-        ),
-        &SkillPathOrigin::Local,
-    )
-    .expect_err("malformed encoded references should be rejected");
-
-    assert!(matches!(
-        error,
-        SkillConversionError::EncodedPathReferenceInvalid
+fn skill_reference_api_conversion_emits_plain_path_reference() {
+    let skill_path = LocalOrRemotePath::Remote(RemotePath::new(
+        HostId::new("remote-host".to_string()),
+        StandardizedPath::try_new("/repo/.agents/skills/deploy/SKILL.md").unwrap(),
     ));
+    let reference: api::skill_descriptor::SkillReference =
+        SkillReference::Path(skill_path.clone()).into();
+
+    assert_eq!(
+        reference,
+        api::skill_descriptor::SkillReference::Path(skill_path.display_path())
+    );
 }
 
 #[test]

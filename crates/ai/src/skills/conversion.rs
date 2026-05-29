@@ -7,10 +7,7 @@ use warp_util::remote_path::RemotePath;
 use warp_util::standardized_path::StandardizedPath;
 
 use crate::agent::action_result::{AnyFileContent, FileContext};
-use crate::skills::{
-    decode_api_path_reference, encode_api_path_reference, ParsedSkill, SkillProvider,
-    SkillReference, SkillScope,
-};
+use crate::skills::{ParsedSkill, SkillProvider, SkillReference, SkillScope};
 
 #[derive(Error, Debug)]
 pub enum SkillConversionError {
@@ -30,8 +27,6 @@ pub enum SkillConversionError {
     PathOriginUnavailable,
     #[error("Invalid remote skill path")]
     RemotePathInvalid,
-    #[error("Invalid encoded skill path reference")]
-    EncodedPathReferenceInvalid,
 }
 /// Identifies how a string skill path from an API payload should be interpreted.
 ///
@@ -77,24 +72,13 @@ impl SkillPathOrigin {
     }
 }
 
-fn skill_location_for_api_path(
-    path: impl Into<String>,
-    path_origin: &SkillPathOrigin,
-) -> Result<LocalOrRemotePath, SkillConversionError> {
-    let path = path.into();
-    match decode_api_path_reference(&path)
-        .map_err(|_| SkillConversionError::EncodedPathReferenceInvalid)?
-    {
-        Some(path) => Ok(path),
-        None => path_origin.location_for_path(path),
-    }
-}
-
 fn skill_reference_for_path(
     path: impl Into<String>,
     path_origin: &SkillPathOrigin,
 ) -> Result<SkillReference, SkillConversionError> {
-    skill_location_for_api_path(path, path_origin).map(SkillReference::Path)
+    path_origin
+        .location_for_path(path)
+        .map(SkillReference::Path)
 }
 
 pub fn skill_reference_from_api_skill_ref(
@@ -130,7 +114,7 @@ impl From<ParsedSkill> for api::Skill {
         api::Skill {
             descriptor: Some(api::SkillDescriptor {
                 skill_reference: Some(api::skill_descriptor::SkillReference::Path(
-                    encode_api_path_reference(&skill.path),
+                    skill.path.display_path(),
                 )),
                 name: skill.name,
                 description: skill.description,
@@ -231,7 +215,7 @@ impl ParsedSkill {
         let line_range = context.line_range.as_ref();
 
         Ok(ParsedSkill {
-            path: skill_location_for_api_path(path, path_origin)?,
+            path: path_origin.location_for_path(path)?,
             name: descriptor.name,
             description: descriptor.description,
             content,
