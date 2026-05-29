@@ -401,6 +401,15 @@ impl RepoMetadataModel {
     ) -> impl Iterator<Item = &'a RemoteRepositoryIdentifier> {
         self.remote.as_ref(ctx).remote_repository_ids()
     }
+    /// Returns all tracked local repository identifiers, including pending and failed entries.
+    pub fn local_repository_ids(&self, ctx: &AppContext) -> Vec<RepositoryIdentifier> {
+        self.local
+            .as_ref(ctx)
+            .repository_paths()
+            .cloned()
+            .map(RepositoryIdentifier::local)
+            .collect()
+    }
 
     /// Returns whether the given local path is tracked as a lazily-loaded standalone path.
     pub fn is_lazy_loaded_path(&self, path: &StandardizedPath, ctx: &AppContext) -> bool {
@@ -438,6 +447,17 @@ impl RepoMetadataModel {
     ) {
         self.local.update(ctx, |local, _ctx| {
             local.insert_test_state_with_coverage(repo_path, state, coverage);
+        });
+    }
+
+    /// Inserts a failed local repository state for testing fallback behavior.
+    pub fn insert_test_failed_state(
+        &self,
+        repo_path: StandardizedPath,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.local.update(ctx, |local, _ctx| {
+            local.insert_test_failed_state(repo_path);
         });
     }
 }

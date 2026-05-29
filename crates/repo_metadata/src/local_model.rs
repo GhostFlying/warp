@@ -503,6 +503,10 @@ impl LocalRepoMetadataModel {
     pub fn repository_coverage(&self, repo_path: &StandardizedPath) -> Option<RepositoryCoverage> {
         self.repository_coverage.get(repo_path).copied()
     }
+    /// Returns all tracked local repository paths, including pending and failed repositories.
+    pub fn repository_paths(&self) -> impl Iterator<Item = &StandardizedPath> {
+        self.repositories.keys()
+    }
 
     /// Checks if a repository is being tracked and indexed.
     pub fn has_repository(&self, repo_path: &StandardizedPath) -> bool {
@@ -1207,6 +1211,15 @@ impl LocalRepoMetadataModel {
     ) {
         self.repository_coverage.insert(repo_path.clone(), coverage);
         self.replace_repository_state(repo_path, IndexedRepoState::Indexed(state));
+    }
+
+    /// Insert a failed local repository state directly for testing fallback consumers.
+    pub fn insert_test_failed_state(&mut self, repo_path: StandardizedPath) {
+        self.repository_coverage.remove(&repo_path);
+        self.replace_repository_state(
+            repo_path,
+            IndexedRepoState::Failed(RepoMetadataError::InvalidPath("test failure".to_string())),
+        );
     }
 }
 
