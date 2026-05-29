@@ -538,12 +538,6 @@ fn render_row_card(
         name_row.add_child(Container::new(info_icon).with_margin_left(6.).finish());
     }
 
-    // Credit + cost cluster: `[coin] X   [card] $cost`. The per-row limit is
-    // intentionally omitted — the "Base credits remaining" balance card up top
-    // owns the base-limit story, and the row's `total_credits` already mixes
-    // base + add-on + payg + cloud-only usage, so showing `total/base_limit`
-    // makes the ratio misleading when add-on credits are spent before the
-    // base limit is exhausted.
     let credits_text = Text::new_inline(
         format_credits(row.total_credits),
         appearance.ui_font_family(),

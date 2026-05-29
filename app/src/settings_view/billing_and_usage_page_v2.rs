@@ -793,9 +793,6 @@ impl BillingAndUsagePageV2View {
             let base_remaining = ai_model
                 .request_limit()
                 .saturating_sub(ai_model.requests_used()) as i64;
-            // Surface the cycle's base limit alongside the remaining count so
-            // users can sanity-check the figure against the per-row usage
-            // numbers below (which mix base + add-on + payg credits).
             let base_limit = (!ai_model.is_unlimited()).then(|| ai_model.request_limit() as i64);
             cards_row.add_child(
                 Expanded::new(
