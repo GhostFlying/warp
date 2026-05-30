@@ -15,7 +15,8 @@ use warpui::{AppContext, ModelContext, ModelHandle, SingletonEntity};
 use crate::file_tree_store::FileTreeState;
 use crate::file_tree_update::RepoMetadataUpdate;
 use crate::local_model::{
-    GetContentsArgs, IndexedRepoState, LocalRepoMetadataModel, RepoContent, RepositoryMetadataEvent,
+    GetContentsArgs, IndexedRepoState, LocalRepoMetadataModel, RepoContent, RepositoryCoverage,
+    RepositoryMetadataEvent,
 };
 use crate::remote_model::{RemoteRepoMetadataModel, RemoteRepositoryMetadataEvent};
 use crate::repository_identifier::{RemoteRepositoryIdentifier, RepositoryIdentifier};
@@ -200,6 +201,18 @@ impl RepoMetadataModel {
             RepositoryIdentifier::Remote(remote_id) => {
                 self.remote.as_ref(ctx).repository_state(remote_id)
             }
+        }
+    }
+
+    /// Returns whether a local repository tree is complete or was indexed in degraded mode.
+    pub fn local_repository_coverage(
+        &self,
+        id: &RepositoryIdentifier,
+        ctx: &AppContext,
+    ) -> Option<RepositoryCoverage> {
+        match id {
+            RepositoryIdentifier::Local(path) => self.local.as_ref(ctx).repository_coverage(path),
+            RepositoryIdentifier::Remote(_) => None,
         }
     }
 
@@ -412,6 +425,19 @@ impl RepoMetadataModel {
     ) {
         self.local.update(ctx, |local, _ctx| {
             local.insert_test_state(repo_path, state);
+        });
+    }
+
+    /// Inserts local repository state with explicit coverage for testing.
+    pub fn insert_test_state_with_coverage(
+        &self,
+        repo_path: StandardizedPath,
+        state: FileTreeState,
+        coverage: RepositoryCoverage,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        self.local.update(ctx, |local, _ctx| {
+            local.insert_test_state_with_coverage(repo_path, state, coverage);
         });
     }
 }

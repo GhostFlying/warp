@@ -14,7 +14,8 @@ use repo_metadata::entry::{DirectoryEntry, Entry, FileMetadata};
 use repo_metadata::file_tree_store::FileTreeState;
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::{
-    DirectoryWatcher, RepoMetadataModel, RepositoryIdentifier, RepositoryUpdate, TargetFile,
+    DirectoryWatcher, RepoMetadataModel, RepositoryCoverage, RepositoryIdentifier,
+    RepositoryUpdate, TargetFile,
 };
 use tempfile::TempDir;
 use warp_util::{
@@ -219,6 +220,80 @@ fn test_handle_repository_update_single_skill_added() {
             event,
             SkillWatcherEvent::SkillsAdded {
                 skills: vec![skill]
+            }
+        );
+    });
+}
+
+#[test]
+fn test_degraded_local_project_metadata_routes_through_filesystem_fallback() {
+    let (tx, rx) = async_channel::unbounded();
+
+    App::test((), |mut app| async move {
+        app.add_singleton_model(DirectoryWatcher::new_for_testing);
+        app.add_singleton_model(|_| DetectedRepositories::default());
+        let repo_metadata_handle = app.add_singleton_model(RepoMetadataModel::new);
+        let skill_watcher_handle = app.add_model(|ctx| SkillWatcher::new_for_testing(ctx, tx));
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo = dunce::canonicalize(temp_dir.path()).unwrap();
+        let nested_dir = repo.join("packages/frontend");
+        let nested_skill =
+            create_skill_file_in_directory(&nested_dir, "degraded", "Degraded", "Content");
+        let repo_id = RepositoryIdentifier::try_local(&repo).unwrap();
+        let repo_key = StandardizedPath::try_from_local(&repo).unwrap();
+        repo_metadata_handle.update(&mut app, |model, ctx| {
+            model.insert_test_state_with_coverage(
+                repo_key,
+                project_state(&repo, None),
+                RepositoryCoverage::Degraded,
+                ctx,
+            );
+        });
+
+        skill_watcher_handle.update(&mut app, |skill_watcher, ctx| {
+            skill_watcher.refresh_or_fallback_project_skills_for_repo(&repo_id, ctx);
+        });
+
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            SkillWatcherEvent::SkillsAdded {
+                skills: vec![nested_skill]
+            }
+        );
+    });
+}
+
+#[test]
+fn test_removing_local_fallback_repo_deletes_filesystem_discovered_skills() {
+    let (tx, rx) = async_channel::unbounded();
+
+    App::test((), |mut app| async move {
+        app.add_singleton_model(DirectoryWatcher::new_for_testing);
+        app.add_singleton_model(|_| DetectedRepositories::default());
+        app.add_singleton_model(RepoMetadataModel::new);
+        let skill_watcher_handle = app.add_model(|ctx| SkillWatcher::new_for_testing(ctx, tx));
+
+        let temp_dir = TempDir::new().unwrap();
+        let repo = dunce::canonicalize(temp_dir.path()).unwrap();
+        let skill = create_skill_file_in_directory(&repo, "fallback", "Fallback", "Content");
+        let repo_id = RepositoryIdentifier::try_local(&repo).unwrap();
+
+        skill_watcher_handle.update(&mut app, |skill_watcher, ctx| {
+            skill_watcher.fallback_to_local_project_watcher(&repo_id, ctx);
+        });
+        assert!(matches!(
+            rx.recv().await.unwrap(),
+            SkillWatcherEvent::SkillsAdded { .. }
+        ));
+
+        skill_watcher_handle.update(&mut app, |skill_watcher, _| {
+            skill_watcher.remove_project_skills_for_repo(&repo_id);
+        });
+        assert_eq!(
+            rx.recv().await.unwrap(),
+            SkillWatcherEvent::SkillsDeleted {
+                paths: vec![skill.path]
             }
         );
     });
@@ -435,9 +510,19 @@ fn test_local_project_fallback_scans_filesystem_when_repo_metadata_fails() {
             panic!("Expected SkillsAdded event");
         };
         skills.sort_by_key(|skill| skill.path.display_path());
-        let mut expected = vec![root_skill, subdir_skill];
+        let mut expected = vec![root_skill.clone(), subdir_skill.clone()];
         expected.sort_by_key(|skill| skill.path.display_path());
         assert_eq!(skills, expected);
+
+        skill_watcher_handle.read(&app, |skill_watcher, _| {
+            assert_eq!(
+                skill_watcher.project_skill_files_by_repo.get(&repo_id),
+                Some(&HashSet::from([
+                    root_skill.path.clone(),
+                    subdir_skill.path.clone()
+                ]))
+            );
+        });
     });
 }
 
@@ -497,20 +582,14 @@ fn test_local_project_fallback_update_reuses_repository_update_handler() {
         let skill_watcher_handle = app.add_model(|ctx| SkillWatcher::new_for_testing(ctx, tx));
 
         let temp_dir = TempDir::new().unwrap();
-        let skill = create_skill_file(&temp_dir, "fallback-update", "Fallback update", "Content");
-        let update = RepositoryUpdate {
-            added: HashSet::new(),
-            modified: HashSet::from([TargetFile::new(skill_local_path(&skill), false)]),
-            deleted: HashSet::new(),
-            moved: HashMap::new(),
-            commit_updated: false,
-            index_lock_detected: false,
-            remote_ref_updated: false,
-        };
+        let repo = dunce::canonicalize(temp_dir.path()).unwrap();
+        let skill =
+            create_skill_file_in_directory(&repo, "fallback-update", "Fallback update", "Content");
+        let repo_id = RepositoryIdentifier::try_local(&repo).unwrap();
 
         skill_watcher_handle.update(&mut app, |skill_watcher, ctx| {
             skill_watcher.handle_message(
-                SkillRepositoryMessage::ProjectRepositoryUpdate { update },
+                SkillRepositoryMessage::ProjectRepositoryUpdate { repo_id },
                 ctx,
             );
         });
@@ -535,22 +614,15 @@ fn test_local_project_fallback_directory_addition_scans_filesystem() {
         let skill_watcher_handle = app.add_model(|ctx| SkillWatcher::new_for_testing(ctx, tx));
 
         let temp_dir = TempDir::new().unwrap();
-        let new_dir = temp_dir.path().join("packages/frontend");
+        let repo = dunce::canonicalize(temp_dir.path()).unwrap();
+        let repo_id = RepositoryIdentifier::try_local(&repo).unwrap();
+        let new_dir = repo.join("packages/frontend");
         let skill =
             create_skill_file_in_directory(&new_dir, "fallback-dir", "Fallback dir", "Content");
-        let update = RepositoryUpdate {
-            added: HashSet::from([TargetFile::new(new_dir, false)]),
-            modified: HashSet::new(),
-            deleted: HashSet::new(),
-            moved: HashMap::new(),
-            commit_updated: false,
-            index_lock_detected: false,
-            remote_ref_updated: false,
-        };
 
         skill_watcher_handle.update(&mut app, |skill_watcher, ctx| {
             skill_watcher.handle_message(
-                SkillRepositoryMessage::ProjectRepositoryUpdate { update },
+                SkillRepositoryMessage::ProjectRepositoryUpdate { repo_id },
                 ctx,
             );
         });
